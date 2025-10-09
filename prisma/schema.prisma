@@ -30,3 +30,75 @@ model Session {
   collaborator  Boolean?  @default(false)
   emailVerified Boolean?  @default(false)
 }
+
+model Video {
+  id            String          @id @default(cuid())
+  title         String
+  videoUrl      String
+  thumbnailUrl  String
+  firebasePath  String?         // Firebase Storage path for deletion
+  source        String          
+  duration      Int?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  
+  videoProducts VideoProduct[]
+  pageVideos    PageVideo[]
+}
+
+model Product {
+  id              String          @id @default(cuid())
+  shopifyId       String          @unique
+  title           String
+  handle          String?
+  image           String?
+  price           String?
+  vendor          String?
+  productType     String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  
+  videoProducts   VideoProduct[]
+}
+
+model VideoProduct {
+  id        String   @id @default(cuid())
+  videoId   String
+  productId String
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  @@unique([videoId, productId])
+  @@index([videoId])
+  @@index([productId])
+}
+
+model VideoPage {
+  id          String      @id @default(cuid())
+  name        String
+  pagePath    String
+  widgetType  String      
+  status      String      @default("draft") 
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  
+  pageVideos  PageVideo[]
+}
+
+model PageVideo {
+  id        String    @id @default(cuid())
+  pageId    String
+  videoId   String
+  position  Int       @default(0)
+  createdAt DateTime  @default(now())
+  
+  page      VideoPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  video     Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  
+  @@unique([pageId, videoId])
+  @@index([pageId])
+  @@index([videoId])
+}
