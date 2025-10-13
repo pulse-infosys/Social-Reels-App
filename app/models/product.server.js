@@ -1,82 +1,134 @@
-import prisma from "../db.server";
+import db from "../db.server";
 
-
-export async function getProducts() {
-  return await prisma.product.findMany({
-    orderBy: {
-      title: 'asc'
-    }
-  });
-}
-
-export async function getProductById(id) {
-  return await prisma.product.findUnique({
-    where: { id }
-  });
-}
-
-export async function syncProductsFromShopify(shopifyProducts) {
-  const products = [];
-  
-  for (const shopifyProduct of shopifyProducts) {
-    const product = await prisma.product.upsert({
-      where: { shopifyId: shopifyProduct.id.toString() },
-      update: {
-        title: shopifyProduct.title,
-        handle: shopifyProduct.handle,
-        image: shopifyProduct.images?.[0]?.src || null,
-        price: shopifyProduct.variants?.[0]?.price || null,
-        vendor: shopifyProduct.vendor,
-        productType: shopifyProduct.product_type
-      },
-      create: {
-        shopifyId: shopifyProduct.id.toString(),
-        title: shopifyProduct.title,
-        handle: shopifyProduct.handle,
-        image: shopifyProduct.images?.[0]?.src || null,
-        price: shopifyProduct.variants?.[0]?.price || null,
-        vendor: shopifyProduct.vendor,
-        productType: shopifyProduct.product_type
-      }
-    });
-    products.push(product);
-  }
-  
-  return products;
-}
-
-export async function attachProductsToVideo(videoId, productIds) {
-  // Delete existing associations
-  await prisma.videoProduct.deleteMany({
-    where: { videoId }
-  });
-  
-  // Create new associations
-  const videoProducts = await Promise.all(
-    productIds.map((productId, index) =>
-      prisma.videoProduct.create({
-        data: {
-          videoId,
-          productId,
-          position: index
-        }
-      })
-    )
-  );
-  
-  return videoProducts;
-}
-
-export async function searchProducts(query) {
-  return await prisma.product.findMany({
+/**
+ * Get all products for a specific shop
+ */
+export async function getProducts(shop) {
+  return await db.product.findMany({
     where: {
-      title: {
-        contains: query,
-        mode: 'insensitive'
-      }
+      shop: shop
     },
     orderBy: {
       title: 'asc'
     }
   });
+}
+
+/**
+ * Get a single product by ID
+ */
+export async function getProductById(id) {
+  return await db.product.findUnique({
+    where: { id }
+  });
+}
+
+/**
+ * Sync products from Shopify to database
+ * Updates existing products and creates new ones
+ */
+export async function syncProductsFromShopify(shopifyProducts, shop) {
+  try {
+    for (const product of shopifyProducts) {
+      await db.product.upsert({
+        where: {
+          shop_shopifyId: {
+            shop: shop,
+            shopifyId: product.shopifyId
+          }
+        },
+        update: {
+          title: product.title,
+          image: product.image,
+          price: product.price,
+          updatedAt: new Date()
+        },
+        create: {
+          shop: shop,
+          shopifyId: product.shopifyId,
+          title: product.title,
+          image: product.image,
+          price: product.price
+        }
+      });
+    }
+    
+    console.log(`Synced ${shopifyProducts.length} products for shop: ${shop}`);
+    return { success: true, count: shopifyProducts.length };
+  } catch (error) {
+    console.error('Error syncing products:', error);
+    throw error;
+  }
+}
+
+/**
+ * Attach products to a video
+ * Replaces existing product associations
+ */
+export async function attachProductsToVideo(videoId, productIds) {
+  try {
+    // First, delete all existing associations for this video
+    await db.videoProduct.deleteMany({
+      where: {
+        videoId: videoId
+      }
+    });
+
+    // Then create new associations
+    if (productIds && productIds.length > 0) {
+      const videoProducts = productIds.map((productId, index) => ({
+        videoId: videoId,
+        productId: productId,
+        position: index
+      }));
+
+      await db.videoProduct.createMany({
+        data: videoProducts
+      });
+    }
+
+    console.log(`Attached ${productIds.length} products to video ${videoId}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Error attaching products to video:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get products attached to a specific video
+ */
+export async function getVideoProducts(videoId) {
+  return await db.videoProduct.findMany({
+    where: {
+      videoId: videoId
+    },
+    include: {
+      product: true
+    },
+    orderBy: {
+      position: 'asc'
+    }
+  });
+}
+
+/**
+ * Remove a product from a video
+ */
+export async function removeProductFromVideo(videoId, productId) {
+  try {
+    await db.videoProduct.delete({
+      where: {
+        videoId_productId: {
+          videoId: videoId,
+          productId: productId
+        }
+      }
+    });
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error removing product from video:', error);
+    throw error;
+  }
 }

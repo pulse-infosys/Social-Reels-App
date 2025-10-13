@@ -1,11 +1,18 @@
 import admin from 'firebase-admin';
 
-// Initialize Firebase Admin if not already initialized
 if (!admin.apps.length) {
-  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-  
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'); // converts \\n to real newlines
+
+  if (!privateKey || !process.env.FIREBASE_CLIENT_EMAIL || !process.env.FIREBASE_PROJECT_ID) {
+    throw new Error('Missing Firebase environment variables.');
+  }
+
   admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey,
+    }),
     storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
   });
 }
@@ -15,9 +22,8 @@ const bucket = admin.storage().bucket();
 export async function uploadVideoToFirebase(buffer, filePath, mimeType) {
   try {
     console.log(`Uploading to Firebase: ${filePath}`);
-    
     const file = bucket.file(filePath);
-    
+
     await file.save(buffer, {
       metadata: {
         contentType: mimeType,
@@ -25,16 +31,11 @@ export async function uploadVideoToFirebase(buffer, filePath, mimeType) {
       public: true,
     });
 
-    // Make the file publicly accessible
     await file.makePublic();
 
-    // Return just the URL string, not an object
     const publicUrl = `https://storage.googleapis.com/${bucket.name}/${filePath}`;
-    
     console.log(`Upload successful: ${publicUrl}`);
-    
-    return publicUrl; // Return string, not object!
-    
+    return publicUrl;
   } catch (error) {
     console.error('Firebase upload error:', error);
     throw error;

@@ -1,4 +1,5 @@
-import  prisma  from "../db.server";
+// app/models/video.server.js
+import prisma from "../db.server";
 import { deleteVideoFromFirebase } from "../utils/firebase.server";
 
 export async function createVideo(data) {
@@ -6,7 +7,6 @@ export async function createVideo(data) {
   console.log('Prisma client exists:', !!prisma);
   console.log('Prisma.video exists:', !!prisma?.video);
   
-
   if (!prisma) {
     console.error('CRITICAL: Prisma client is undefined! Check your import path in video.server.js');
     throw new Error('Prisma client not initialized');
@@ -26,9 +26,23 @@ export async function createVideo(data) {
         firebasePath: data.firebasePath,
         source: data.source || 'upload',
         duration: data.duration || null,
+        processingStatus: 'processing',
+        processingProgress: 0,
       },
     });
+    
     console.log('Video created successfully:', video);
+    
+    // Start processing in background (simulated here - 5 seconds)
+    setTimeout(async () => {
+      try {
+        await updateVideoProcessingStatus(video.id, 'complete', 100);
+        console.log('Video processing completed:', video.id);
+      } catch (error) {
+        console.error('Error updating processing status:', error);
+      }
+    }, 5000);
+    
     return video;
   } catch (error) {
     console.error('Error creating video:', error);
@@ -39,6 +53,23 @@ export async function createVideo(data) {
       meta: error.meta,
     });
     throw error;
+  }
+}
+
+export async function updateVideoProcessingStatus(videoId, status, progress) {
+  if (!prisma) return null;
+  
+  try {
+    return await prisma.video.update({
+      where: { id: videoId },
+      data: {
+        processingStatus: status,
+        processingProgress: progress,
+      },
+    });
+  } catch (error) {
+    console.error('Error updating video processing status:', error);
+    return null;
   }
 }
 
@@ -69,7 +100,7 @@ export async function getVideos() {
       },
     });
     
-    console.log('getVideos result:', videos);
+    console.log('getVideos result:', videos.length, 'videos found');
     return videos;
   } catch (error) {
     console.error('Error in getVideos:', error);
@@ -144,71 +175,140 @@ export async function searchVideos(query) {
 }
 
 export async function updateVideo(id, data) {
-  return await prisma.video.update({
-    where: { id },
-    data: {
-      title: data.title,
-      thumbnailUrl: data.thumbnailUrl,
-      duration: data.duration,
-    },
-  });
+  if (!prisma) return null;
+  
+  try {
+    return await prisma.video.update({
+      where: { id },
+      data: {
+        title: data.title,
+        thumbnailUrl: data.thumbnailUrl,
+        duration: data.duration,
+      },
+    });
+  } catch (error) {
+    console.error('Error in updateVideo:', error);
+    throw error;
+  }
 }
 
 export async function deleteVideo(id) {
-  const video = await prisma.video.findUnique({
-    where: { id },
-    select: { firebasePath: true },
-  });
-  
-  if (video?.firebasePath) {
-    try {
-      await deleteVideoFromFirebase(video.firebasePath);
-    } catch (error) {
-      console.error('Failed to delete video from Firebase:', error);
-    }
+  if (!prisma) {
+    throw new Error('Prisma client not initialized');
   }
   
-  return await prisma.video.delete({
-    where: { id },
-  });
+  try {
+    console.log('Deleting video:', id);
+    
+    // First get video details
+    const video = await prisma.video.findUnique({
+      where: { id },
+      select: { 
+        firebasePath: true,
+        videoProducts: true 
+      },
+    });
+    
+    if (!video) {
+      throw new Error('Video not found');
+    }
+    
+    // Delete video from Firebase storage if path exists
+    if (video.firebasePath) {
+      try {
+        await deleteVideoFromFirebase(video.firebasePath);
+        console.log('Video deleted from Firebase:', video.firebasePath);
+      } catch (error) {
+        console.error('Failed to delete video from Firebase:', error);
+        // Continue with database deletion even if Firebase deletion fails
+      }
+    }
+    
+    // Delete associated videoProducts first (if cascade is not set in schema)
+    if (video.videoProducts && video.videoProducts.length > 0) {
+      await prisma.videoProduct.deleteMany({
+        where: { videoId: id },
+      });
+      console.log('Deleted associated video products:', video.videoProducts.length);
+    }
+    
+    // Finally delete the video from database
+    const deletedVideo = await prisma.video.delete({
+      where: { id },
+    });
+    
+    console.log('Video deleted successfully from database:', id);
+    return deletedVideo;
+    
+  } catch (error) {
+    console.error('Error in deleteVideo:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      meta: error.meta,
+    });
+    throw error;
+  }
 }
 
 export async function attachProductToVideo(videoId, productId, position = 0) {
-  return await prisma.videoProduct.create({
-    data: {
-      videoId,
-      productId,
-      position,
-    },
-  });
+  if (!prisma) return null;
+  
+  try {
+    return await prisma.videoProduct.create({
+      data: {
+        videoId,
+        productId,
+        position,
+      },
+    });
+  } catch (error) {
+    console.error('Error in attachProductToVideo:', error);
+    throw error;
+  }
 }
 
 export async function detachProductFromVideo(videoId, productId) {
-  return await prisma.videoProduct.delete({
-    where: {
-      videoId_productId: {
-        videoId,
-        productId,
-      },
-    },
-  });
-}
-
-export async function getVideosByProduct(productId) {
-  return await prisma.video.findMany({
-    where: {
-      videoProducts: {
-        some: {
+  if (!prisma) return null;
+  
+  try {
+    return await prisma.videoProduct.delete({
+      where: {
+        videoId_productId: {
+          videoId,
           productId,
         },
       },
-    },
-    include: {
-      videoProducts: {
-        include: {
-          product: true,
+    });
+  } catch (error) {
+    console.error('Error in detachProductFromVideo:', error);
+    throw error;
+  }
+}
+
+export async function getVideosByProduct(productId) {
+  if (!prisma) return [];
+  
+  try {
+    return await prisma.video.findMany({
+      where: {
+        videoProducts: {
+          some: {
+            productId,
+          },
         },
       },
-    },
-  });
+      include: {
+        videoProducts: {
+          include: {
+            product: true,
+          },
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Error in getVideosByProduct:', error);
+    return [];
+  }
 }
