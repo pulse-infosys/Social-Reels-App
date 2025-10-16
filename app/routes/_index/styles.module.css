@@ -71,3 +71,8 @@
     padding-bottom: 1rem;
   }
 }
+
+
+body{
+    background-color: red !important;
+}

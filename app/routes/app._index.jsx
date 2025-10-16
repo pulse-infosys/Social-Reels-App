@@ -29,6 +29,16 @@ import {
 import { DeleteIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import { attachProductsToVideo } from "../models/product.server";
+// import globalStyle from "../Style/GlobalStyle.css";
+
+// export function links() {
+//   return [
+//     {
+//       rel: "stylesheet",
+//       href: globalStyle,
+//     }
+//   ];
+// }
 
 // GraphQL query to fetch products with pagination
 const PRODUCTS_QUERY = `
@@ -289,7 +299,7 @@ function VideoCard({ video, onOpenAddProduct, onOpenModifyProduct, onPlayVideo, 
         </div>
       )}
       
-      <Card>
+     
         <BlockStack gap="300">
           <div 
             style={{ 
@@ -363,9 +373,9 @@ function VideoCard({ video, onOpenAddProduct, onOpenModifyProduct, onPlayVideo, 
               </svg>
             </div>
           </div>
-          
+           <Card>
           <BlockStack gap="200">
-            {attachedProducts.length > 0 && (
+            {attachedProducts.length > 0 ? (
               <div 
                 onClick={() => onOpenModifyProduct(video)}
                 style={{ cursor: 'pointer' }}
@@ -398,18 +408,25 @@ function VideoCard({ video, onOpenAddProduct, onOpenModifyProduct, onPlayVideo, 
                   </div>
                 </InlineStack>
               </div>
+            ): (
+              <>
+                  <Text variant="bodySm" as="p" alignment="center" >
+                    Attach products to make it shoppable video
+                  </Text>
+              </>
             )}
             
             <Button
               fullWidth
               onClick={() => onOpenAddProduct(video)}
               disabled={isDeleting}
+              variant = "primary"
             >
               + Attach Products
             </Button>
           </BlockStack>
-        </BlockStack>
       </Card>
+        </BlockStack>
     </div>
   );
 }
@@ -861,10 +878,11 @@ export default function VideoLibrary() {
                 <Banner tone="info">
                   <BlockStack gap="200">
                     <InlineStack gap="200" blockAlign="center">
-                      <Spinner size="small" />
+                      <div style={{ display:"flex", gap:"5px"}}><Spinner size="small" />
                       <Text variant="bodyMd" fontWeight="semibold">
                         Product Deleting...
                       </Text>
+                      </div>
                     </InlineStack>
                     <Text variant="bodySm" tone="subdued">
                       Please do not close this window
@@ -882,6 +900,7 @@ export default function VideoLibrary() {
                   setAddProductModalActive(true);
                 }}
                 disabled={isSavingProducts}
+                variant = "primary"
               >
                 + Attach products
               </Button>
@@ -931,6 +950,7 @@ export default function VideoLibrary() {
                   onClick={handleSaveProducts}
                   loading={isSavingProducts}
                   disabled={isSavingProducts}
+                  variant="primary"
                 >
                   {isSavingProducts ? "Saving..." : "Save Changes"}
                 </Button>

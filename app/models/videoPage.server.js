@@ -1,8 +1,7 @@
-import prisma from "../db.server";
-
+import db from "../db.server";
 
 export async function getVideoPages() {
-  return await prisma.videoPage.findMany({
+  const videoPages = await db.videoPage.findMany({
     include: {
       pageVideos: {
         include: {
@@ -25,10 +24,12 @@ export async function getVideoPages() {
       createdAt: 'desc'
     }
   });
+  
+  return videoPages;
 }
 
 export async function getVideoPageById(id) {
-  return await prisma.videoPage.findUnique({
+  const videoPage = await db.videoPage.findUnique({
     where: { id },
     include: {
       pageVideos: {
@@ -42,57 +43,107 @@ export async function getVideoPageById(id) {
               }
             }
           }
+        },
+        orderBy: {
+          position: 'asc'
         }
       }
     }
   });
+  
+  return videoPage;
 }
 
-export async function createVideoPage(data) {
-  return await prisma.videoPage.create({
+export async function createVideoPage({ name, widgetType, pagePath, videoIds }) {
+  const videoPage = await db.videoPage.create({
     data: {
-      name: data.name,
-      pagePath: data.pagePath,
-      widgetType: data.widgetType,
-      status: 'draft'
+      name,
+      widgetType,
+      pagePath,
+      status: 'live',
+      pageVideos: {
+        create: videoIds.map((videoId, index) => ({
+          videoId,
+          position: index
+        }))
+      }
+    },
+    include: {
+      pageVideos: {
+        include: {
+          video: true
+        }
+      }
     }
+  });
+  
+  return videoPage;
+}
+
+export async function updateVideoPage(id, { name, widgetType, pagePath, status }) {
+  const videoPage = await db.videoPage.update({
+    where: { id },
+    data: {
+      name,
+      widgetType,
+      pagePath,
+      status,
+      updatedAt: new Date()
+    }
+  });
+  
+  return videoPage;
+}
+
+export async function deleteVideoPage(id) {
+  await db.videoPage.delete({
+    where: { id }
   });
 }
 
 export async function addVideosToPage(pageId, videoIds) {
-  const pageVideos = await Promise.all(
-    videoIds.map((videoId, index) =>
-      prisma.pageVideo.upsert({
+  // Get the current max position
+  const currentVideos = await db.pageVideo.findMany({
+    where: { pageId },
+    orderBy: { position: 'desc' },
+    take: 1
+  });
+  
+  const startPosition = currentVideos.length > 0 ? currentVideos[0].position + 1 : 0;
+  
+  // Create new page video associations
+  await db.pageVideo.createMany({
+    data: videoIds.map((videoId, index) => ({
+      pageId,
+      videoId,
+      position: startPosition + index
+    })),
+    skipDuplicates: true
+  });
+}
+
+export async function removeVideoFromPage(pageId, videoId) {
+  await db.pageVideo.deleteMany({
+    where: {
+      pageId,
+      videoId
+    }
+  });
+}
+
+export async function updateVideoPositions(pageId, videoPositions) {
+  // videoPositions is an array of { videoId, position }
+  await Promise.all(
+    videoPositions.map(({ videoId, position }) =>
+      db.pageVideo.updateMany({
         where: {
-          pageId_videoId: {
-            pageId,
-            videoId
-          }
-        },
-        update: {
-          position: index
-        },
-        create: {
           pageId,
-          videoId,
-          position: index
+          videoId
+        },
+        data: {
+          position
         }
       })
     )
   );
-  
-  return pageVideos;
-}
-
-export async function updatePageStatus(id, status) {
-  return await prisma.videoPage.update({
-    where: { id },
-    data: { status }
-  });
-}
-
-export async function deleteVideoPage(id) {
-  return await prisma.videoPage.delete({
-    where: { id }
-  });
 }
