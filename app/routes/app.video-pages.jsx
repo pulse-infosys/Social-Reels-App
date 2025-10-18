@@ -344,6 +344,12 @@ export default function VideoPages() {
     fetcher.submit(formData, { method: "post" });
   };
 
+  // Handle row click - navigate to edit page
+  const handleRowClick = (c) => {
+    console.log('videoPageId===',videoPageId);
+    navigate(`/app/video-pages/${videoPageId}`);
+  };
+
   const filteredPages = shopifyPages.filter((page) =>
     page.title.toLowerCase().includes(pageSearchValue.toLowerCase()),
   );
@@ -399,18 +405,6 @@ export default function VideoPages() {
       >
         <Layout>
           <Layout.Section>
-            <Banner tone="warning">
-              <BlockStack gap="200">
-                <Text variant="headingMd" as="h2">
-                  Embed not enabled
-                </Text>
-                <Text as="p">Enable app embed to start using the app.</Text>
-                <Button>Enable app embed</Button>
-              </BlockStack>
-            </Banner>
-          </Layout.Section>
-
-          <Layout.Section>
             <Card padding="0">
               <BlockStack gap="0">
                 <div style={{ padding: "16px 16px 0 16px" }}>
@@ -433,11 +427,18 @@ export default function VideoPages() {
                     </EmptyState>
                   </div>
                 ) : (
-                  <DataTable
-                    columnContentTypes={["text", "text", "text"]}
-                    headings={["Page path", "Widgets present", "Widget status"]}
-                    rows={rows}
-                  />
+                  <div style={{ cursor: "pointer" }}>
+                    <DataTable
+                      columnContentTypes={["text", "text", "text"]}
+                      headings={["Page path", "Widgets present", "Widget status"]}
+                      rows={rows}
+                      onRowClick={(index) => {
+                        const videoPage = filteredVideoPages[index];
+                        handleRowClick(videoPage.id);
+                      }}
+                      hoverable
+                    />
+                  </div>
                 )}
               </BlockStack>
             </Card>
