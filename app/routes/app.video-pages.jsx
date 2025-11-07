@@ -182,7 +182,7 @@ export const loader = async ({ request }) => {
     ...shopifyCollections,
   ];
 
-  console.log("Total pages/products/collections loaded:", allPages.length);
+  // console.log("Total pages/products/collections loaded:", allPages.length);
 
   return json({
     videoPages,
@@ -194,6 +194,7 @@ export const loader = async ({ request }) => {
 export const action = async ({ request }) => {
   const formData = await request.formData();
   const actionType = formData.get("actionType");
+  const { session } = await authenticate.admin(request);
 
   if (actionType === "createVideoPage") {
     const { createVideoPage } = await import("../models/videoPage.server");
@@ -206,9 +207,10 @@ export const action = async ({ request }) => {
     try {
       await createVideoPage({
         name: pageName,
-        widgetType,
+        shop: session.shop,
         pagePath,
         videoIds,
+        widgetType
       });
       return json({ success: true });
     } catch (error) {
@@ -345,10 +347,11 @@ export default function VideoPages() {
   };
 
   // Handle row click - navigate to edit page
-  const handleRowClick = (c) => {
-    console.log('videoPageId===',videoPageId);
-    navigate(`/app/video-pages/${videoPageId}`);
+  const handleRowClick = (videoPageId) => {
+    console.log("Clicked video page ID:", videoPageId);
+    navigate(`/app/page-editor/${videoPageId}`);
   };
+
 
   const filteredPages = shopifyPages.filter((page) =>
     page.title.toLowerCase().includes(pageSearchValue.toLowerCase()),
@@ -368,16 +371,21 @@ export default function VideoPages() {
   );
 
   const rows = filteredVideoPages.map((page) => [
-    page.pagePath,
-    <InlineStack gap="200" key={page.id}>
+    <div
+      key={page.id}
+      onClick={() => handleRowClick(page.id)}
+      style={{ cursor: "pointer", color: "#008060" }}
+    >
+      {page.pagePath}
+    </div>,
+    <InlineStack gap="200">
       {page.widgetType === "floating" && <Badge>Floating</Badge>}
       {page.widgetType === "carousel" && <Badge>Carousel</Badge>}
       {page.widgetType === "stories" && <Badge>Stories</Badge>}
     </InlineStack>,
-    <Badge tone="success" key={`status-${page.id}`}>
-      Live
-    </Badge>,
+    <Badge tone="success">Live</Badge>,
   ]);
+
 
   const toastMarkup = toastActive ? (
     <Toast
@@ -433,6 +441,7 @@ export default function VideoPages() {
                       headings={["Page path", "Widgets present", "Widget status"]}
                       rows={rows}
                       onRowClick={(index) => {
+                        console.log('videoPage.id====',videoPage.id);
                         const videoPage = filteredVideoPages[index];
                         handleRowClick(videoPage.id);
                       }}

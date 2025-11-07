@@ -29,20 +29,23 @@ model Session {
 }
 
 model Video {
-  id            String          @id @default(cuid())
-  title         String
-  videoUrl      String
-  thumbnailUrl  String
-  firebasePath  String?
-  source        String          
-  duration      Int?
-  processingStatus   String         @default("pending")
-  processingProgress Int            @default(0)
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  id                 String          @id @default(cuid())
+  shop               String?          // Multi-tenant support
+  title              String
+  videoUrl           String
+  thumbnailUrl       String
+  firebasePath       String?
+  source             String          
+  duration           Int?
+  processingStatus   String          @default("pending")
+  processingProgress Int             @default(0)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
   
-  videoProducts VideoProduct[]
-  pageVideos    PageVideo[]
+  videoProducts      VideoProduct[]
+  widgetVideos       WidgetVideo[]
+  
+  @@index([shop])
 }
 
 model Product {
@@ -81,27 +84,47 @@ model VideoProduct {
 
 model VideoPage {
   id          String      @id @default(cuid())
-  name        String
-  pagePath    String
-  widgetType  String      
-  status      String      @default("draft") 
+  shop        String?      // Multi-tenant support
+  name        String      // Page title (e.g., "Homepage", "Product Page")
+  pagePath    String      // URL path (e.g., "/", "/products/shoe")
+  pageHandle  String?      // Shopify handle for the page
+  widgetType  String? 
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   
-  pageVideos  PageVideo[]
+  widgets     Widget[]
+  
+  @@unique([shop, pagePath]) // One page per shop per path
+  @@index([shop])
 }
 
-model PageVideo {
+model Widget {
+  id          String        @id @default(cuid())
+  pageId      String
+  widgetType  String       
+  status      String        @default("draft") // "draft", "live"
+  isCreated   Boolean       @default(false) // Widget exists or not
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  
+  page        VideoPage     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  widgetVideos WidgetVideo[]
+  
+  @@unique([pageId, widgetType])
+  @@index([pageId])
+}
+
+model WidgetVideo {
   id        String    @id @default(cuid())
-  pageId    String
+  widgetId  String
   videoId   String
   position  Int       @default(0)
   createdAt DateTime  @default(now())
   
-  page      VideoPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  widget    Widget    @relation(fields: [widgetId], references: [id], onDelete: Cascade)
   video     Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
   
-  @@unique([pageId, videoId])
-  @@index([pageId])
+  @@unique([widgetId, videoId])
+  @@index([widgetId])
   @@index([videoId])
 }

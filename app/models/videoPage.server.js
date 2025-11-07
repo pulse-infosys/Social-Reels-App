@@ -1,149 +1,221 @@
+// app/models/videoPage.server.js
+
 import db from "../db.server";
 
-export async function getVideoPages() {
-  const videoPages = await db.videoPage.findMany({
+/**
+ * Get all video pages for a shop
+ */
+export async function getVideoPages(shop) {
+  return await db.videoPage.findMany({
+    where: { shop },
     include: {
-      pageVideos: {
+      widgets: {
         include: {
-          video: {
+          widgetVideos: {
             include: {
-              videoProducts: {
+              video: {
                 include: {
-                  product: true
-                }
-              }
-            }
-          }
+                  videoProducts: {
+                    include: {
+                      product: true,
+                    },
+                  },
+                },
+              },
+            },
+            orderBy: { position: "asc" },
+          },
         },
-        orderBy: {
-          position: 'asc'
-        }
-      }
+      },
     },
-    orderBy: {
-      createdAt: 'desc'
-    }
+    orderBy: { createdAt: "desc" },
   });
-  
-  return videoPages;
 }
 
-export async function getVideoPageById(id) {
-  const videoPage = await db.videoPage.findUnique({
-    where: { id },
+/**
+ * Get a single video page by ID for a shop
+ */
+export async function getVideoPageById(id, shop) {
+  return await db.videoPage.findFirst({
+    where: { id, shop },
     include: {
-      pageVideos: {
+      widgets: {
         include: {
-          video: {
+          widgetVideos: {
             include: {
-              videoProducts: {
+              video: {
                 include: {
-                  product: true
-                }
-              }
-            }
-          }
+                  videoProducts: {
+                    include: {
+                      product: true,
+                    },
+                  },
+                },
+              },
+            },
+            orderBy: { position: "asc" },
+          },
         },
-        orderBy: {
-          position: 'asc'
-        }
-      }
-    }
-  });
-  
-  return videoPage;
-}
-
-export async function createVideoPage({ name, widgetType, pagePath, videoIds }) {
-  const videoPage = await db.videoPage.create({
-    data: {
-      name,
-      widgetType,
-      pagePath,
-      status: 'live',
-      pageVideos: {
-        create: videoIds.map((videoId, index) => ({
-          videoId,
-          position: index
-        }))
-      }
+      },
     },
-    include: {
-      pageVideos: {
-        include: {
-          video: true
-        }
-      }
-    }
   });
-  
-  return videoPage;
 }
 
-export async function updateVideoPage(id, { name, widgetType, pagePath, status }) {
-  const videoPage = await db.videoPage.update({
-    where: { id },
+/**
+ * Create a new video page for a shop
+ */
+export async function createVideoPage({ shop, name, pagePath, pageHandle, widgetType }) {
+  return await db.videoPage.create({
     data: {
+      shop,
       name,
-      widgetType,
       pagePath,
-      status,
-      updatedAt: new Date()
-    }
-  });
-  
-  return videoPage;
-}
-
-export async function deleteVideoPage(id) {
-  await db.videoPage.delete({
-    where: { id }
+      pageHandle,
+      widgetType
+    },
   });
 }
 
-export async function addVideosToPage(pageId, videoIds) {
-  // Get the current max position
-  const currentVideos = await db.pageVideo.findMany({
-    where: { pageId },
-    orderBy: { position: 'desc' },
-    take: 1
-  });
-  
-  const startPosition = currentVideos.length > 0 ? currentVideos[0].position + 1 : 0;
-  
-  // Create new page video associations
-  await db.pageVideo.createMany({
-    data: videoIds.map((videoId, index) => ({
-      pageId,
-      videoId,
-      position: startPosition + index
-    })),
-    skipDuplicates: true
-  });
-}
-
-export async function removeVideoFromPage(pageId, videoId) {
-  await db.pageVideo.deleteMany({
+/**
+ * Create a widget for a video page
+ */
+export async function createWidget(pageId, widgetType, videoIds, shop) {
+  // First check if widget already exists
+  const existingWidget = await db.widget.findFirst({
     where: {
       pageId,
-      videoId
-    }
+      widgetType,
+    },
+  });
+
+  if (existingWidget) {
+    throw new Error(`${widgetType} widget already exists for this page`);
+  }
+
+  // Verify the page belongs to this shop
+  const page = await db.videoPage.findFirst({
+    where: { id: pageId, shop },
+  });
+
+  if (!page) {
+    throw new Error("Video page not found or access denied");
+  }
+
+  // Create the widget with videos
+  return await db.widget.create({
+    data: {
+      pageId,
+      widgetType,
+      isCreated: true,
+      status: "draft",
+      widgetVideos: {
+        create: videoIds.map((videoId, index) => ({
+          videoId,
+          position: index,
+        })),
+      },
+    },
+    include: {
+      widgetVideos: {
+        include: {
+          video: true,
+        },
+      },
+    },
   });
 }
 
-export async function updateVideoPositions(pageId, videoPositions) {
-  // videoPositions is an array of { videoId, position }
-  await Promise.all(
-    videoPositions.map(({ videoId, position }) =>
-      db.pageVideo.updateMany({
-        where: {
-          pageId,
-          videoId
-        },
-        data: {
-          position
-        }
-      })
-    )
+/**
+ * Update widget status (draft/live)
+ */
+export async function updateWidgetStatus(widgetId, status) {
+  return await db.widget.update({
+    where: { id: widgetId },
+    data: { status },
+  });
+}
+
+/**
+ * Add videos to an existing widget
+ */
+export async function addVideosToWidget(widgetId, videoIds) {
+  // Get the current max position
+  const maxPosition = await db.widgetVideo.findFirst({
+    where: { widgetId },
+    orderBy: { position: "desc" },
+    select: { position: true },
+  });
+
+  const startPosition = (maxPosition?.position || -1) + 1;
+
+  // Add new videos
+  const widgetVideos = videoIds.map((videoId, index) => ({
+    widgetId,
+    videoId,
+    position: startPosition + index,
+  }));
+
+  return await db.widgetVideo.createMany({
+    data: widgetVideos,
+    skipDuplicates: true, // Skip if video already exists in widget
+  });
+}
+
+/**
+ * Remove a video from a widget
+ */
+export async function removeVideoFromWidget(widgetId, videoId) {
+  return await db.widgetVideo.deleteMany({
+    where: {
+      widgetId,
+      videoId,
+    },
+  });
+}
+
+/**
+ * Reorder videos in a widget
+ */
+export async function reorderWidgetVideos(widgetId, videoIds) {
+  // Update positions based on new order
+  const updates = videoIds.map((videoId, index) =>
+    db.widgetVideo.updateMany({
+      where: {
+        widgetId,
+        videoId,
+      },
+      data: {
+        position: index,
+      },
+    })
   );
+
+  return await db.$transaction(updates);
+}
+
+/**
+ * Delete a widget
+ */
+export async function deleteWidget(widgetId) {
+  return await db.widget.delete({
+    where: { id: widgetId },
+  });
+}
+
+/**
+ * Delete a video page and all its widgets
+ */
+export async function deleteVideoPage(pageId, shop) {
+  // Verify ownership
+  const page = await db.videoPage.findFirst({
+    where: { id: pageId, shop },
+  });
+
+  if (!page) {
+    throw new Error("Video page not found or access denied");
+  }
+
+  return await db.videoPage.delete({
+    where: { id: pageId },
+  });
 }
