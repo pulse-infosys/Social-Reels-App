@@ -29,16 +29,6 @@ import {
 import { DeleteIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import { attachProductsToVideo } from "../models/product.server";
-// import globalStyle from "../Style/GlobalStyle.css";
-
-// export function links() {
-//   return [
-//     {
-//       rel: "stylesheet",
-//       href: globalStyle,
-//     }
-//   ];
-// }
 
 // GraphQL query to fetch products with pagination
 const PRODUCTS_QUERY = `
@@ -169,45 +159,70 @@ export const action = async ({ request }) => {
   return json({ success: false });
 };
 
-// Upload Progress Component
-function UploadProgressCard({ uploadId, fileName, onRemove }) {
+// Upload Progress Component - NOW WITH AUTO-REVALIDATION
+function UploadProgressCard({ uploadId, fileName, onRemove, onComplete }) {
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('uploading');
-  const revalidator = useRevalidator();
+  const [statusMessage, setStatusMessage] = useState('Uploading to Shopify...');
 
   useEffect(() => {
-    const uploadInterval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(uploadInterval);
-          setStatus('processing');
-          
-          setTimeout(() => {
+    let progressInterval;
+    
+    if (status === 'uploading') {
+      // Simulate upload progress (0-60%)
+      progressInterval = setInterval(() => {
+        setProgress(prev => {
+          if (prev >= 60) {
+            clearInterval(progressInterval);
+            setStatus('processing');
+            setStatusMessage('Processing video in Shopify...');
+            return 60;
+          }
+          return prev + 5;
+        });
+      }, 200);
+    } else if (status === 'processing') {
+      // Simulate processing (60-90%)
+      progressInterval = setInterval(() => {
+        setProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            setStatus('finalizing');
+            setStatusMessage('Saving to database...');
+            return 90;
+          }
+          return prev + 2;
+        });
+      }, 300);
+    } else if (status === 'finalizing') {
+      // Final stage (90-100%)
+      progressInterval = setInterval(() => {
+        setProgress(prev => {
+          if (prev >= 100) {
+            clearInterval(progressInterval);
             setStatus('complete');
+            setStatusMessage('Complete!');
+            
+            // Call onComplete to trigger revalidation
             setTimeout(() => {
-              onRemove(uploadId);
-              revalidator.revalidate();
-            }, 2000);
-          }, 3000);
-          
-          return 100;
-        }
-        return prev + 10;
-      });
-    }, 300);
+              onComplete(uploadId);
+            }, 1000);
+            
+            return 100;
+          }
+          return prev + 5;
+        });
+      }, 200);
+    }
 
-    return () => clearInterval(uploadInterval);
-  }, [uploadId, onRemove, revalidator]);
+    return () => {
+      if (progressInterval) clearInterval(progressInterval);
+    };
+  }, [status, uploadId, onComplete]);
 
   if (status === 'complete') {
     return null;
   }
-
-  const getStatusText = () => {
-    if (status === 'uploading') return `Uploading ${progress}%`;
-    if (status === 'processing') return 'Processing video...';
-    return 'Complete';
-  };
 
   return (
     <Box padding="400" background="bg-surface-secondary" borderRadius="200">
@@ -215,21 +230,28 @@ function UploadProgressCard({ uploadId, fileName, onRemove }) {
         <InlineStack align="space-between" blockAlign="center">
           <div style={{ flex: 1 }}>
             <Text variant="bodyMd" fontWeight="semibold">
-              {status === 'uploading' ? 'Uploading Media' : 'Processing Video'}
+              {status === 'uploading' && '⬆️ Uploading Video'}
+              {status === 'processing' && '⚙️ Processing Video'}
+              {status === 'finalizing' && '✓ Finalizing'}
             </Text>
             <Text variant="bodySm" tone="subdued">
-              {fileName.length > 30 ? fileName.substring(0, 30) + '...' : fileName}
+              {fileName.length > 40 ? fileName.substring(0, 40) + '...' : fileName}
             </Text>
           </div>
-          <Text variant="bodySm" tone="subdued">
-            {getStatusText()}
-          </Text>
+          <div style={{ textAlign: 'right', minWidth: '100px' }}>
+            <Text variant="bodySm" fontWeight="medium">
+              {progress}%
+            </Text>
+            <Text variant="bodySm" tone="subdued" as="span">
+              {statusMessage}
+            </Text>
+          </div>
         </InlineStack>
         <ProgressBar 
-          progress={status === 'processing' ? 100 : progress} 
+          progress={progress} 
           size="small" 
-          tone={status === 'processing' ? 'primary' : 'success'}
-          animated={status === 'processing'}
+          tone={status === 'finalizing' ? 'success' : 'primary'}
+          animated={true}
         />
       </BlockStack>
     </Box>
@@ -299,81 +321,81 @@ function VideoCard({ video, onOpenAddProduct, onOpenModifyProduct, onPlayVideo, 
         </div>
       )}
       
-     
-        <BlockStack gap="300">
-          <div 
-            style={{ 
-              position: 'relative', 
-              paddingTop: '150%', 
-              backgroundColor: '#000', 
-              borderRadius: '8px',
-              cursor: 'pointer',
-              overflow: 'hidden'
+      <BlockStack gap="300">
+        <div 
+          style={{ 
+            position: 'relative', 
+            paddingTop: '150%', 
+            backgroundColor: '#000', 
+            borderRadius: '8px',
+            cursor: 'pointer',
+            overflow: 'hidden'
+          }}
+          onClick={() => onPlayVideo(video.id)}
+        >
+          <video
+            ref={(el) => videoRefs.current[video.id] = el}
+            src={video.videoUrl}
+            poster={video.thumbnailUrl}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              borderRadius: '8px'
             }}
-            onClick={() => onPlayVideo(video.id)}
-          >
-            <video
-              ref={(el) => videoRefs.current[video.id] = el}
-              src={video.videoUrl}
-              poster={video.thumbnailUrl}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                borderRadius: '8px'
-              }}
-              onEnded={() => onPlayVideo(null)}
-            />
-            
-            {playingVideo !== video.id && (
-              <div style={{
-                position: 'absolute',
-                top: '50%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                width: '48px',
-                height: '48px',
-                backgroundColor: 'rgba(0,0,0,0.6)',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'white',
-                fontSize: '20px'
-              }}>
-                ▶
-              </div>
-            )}
-            
-            <div 
-              onClick={handleDelete}
-              style={{
-                position: 'absolute',
-                top: '8px',
-                right: '8px',
-                backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                borderRadius: '50%',
-                width: '32px',
-                height: '32px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                transition: 'background-color 0.2s',
-                zIndex: 2
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 1)'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.9)'}
-            >
-              <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
-                <path d="M8 4V3h4v1h4v1h-1v11a1 1 0 01-1 1H6a1 1 0 01-1-1V5H4V4h4zm6 1H6v11h8V5zm-6 2h1v7H8V7zm3 0h1v7h-1V7z" fill="#D72C0D"/>
-              </svg>
+            onEnded={() => onPlayVideo(null)}
+          />
+          
+          {playingVideo !== video.id && (
+            <div style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: '48px',
+              height: '48px',
+              backgroundColor: 'rgba(0,0,0,0.6)',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              fontSize: '20px'
+            }}>
+              ▶
             </div>
+          )}
+          
+          <div 
+            onClick={handleDelete}
+            style={{
+              position: 'absolute',
+              top: '8px',
+              right: '8px',
+              backgroundColor: 'rgba(255, 255, 255, 0.9)',
+              borderRadius: '50%',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              transition: 'background-color 0.2s',
+              zIndex: 2
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 1)'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.9)'}
+          >
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+              <path d="M8 4V3h4v1h4v1h-1v11a1 1 0 01-1 1H6a1 1 0 01-1-1V5H4V4h4zm6 1H6v11h8V5zm-6 2h1v7H8V7zm3 0h1v7h-1V7z" fill="#D72C0D"/>
+            </svg>
           </div>
-           <Card>
+        </div>
+        
+        <Card>
           <BlockStack gap="200">
             {attachedProducts.length > 0 ? (
               <div 
@@ -410,9 +432,9 @@ function VideoCard({ video, onOpenAddProduct, onOpenModifyProduct, onPlayVideo, 
               </div>
             ): (
               <>
-                  <Text variant="bodySm" as="p" alignment="center" >
-                    Attach products to make it shoppable video
-                  </Text>
+                <Text variant="bodySm" as="p" alignment="center" >
+                  Attach products to make it shoppable video
+                </Text>
               </>
             )}
             
@@ -425,8 +447,8 @@ function VideoCard({ video, onOpenAddProduct, onOpenModifyProduct, onPlayVideo, 
               + Attach Products
             </Button>
           </BlockStack>
-      </Card>
-        </BlockStack>
+        </Card>
+      </BlockStack>
     </div>
   );
 }
@@ -452,28 +474,22 @@ export default function VideoLibrary() {
   const [toastMessage, setToastMessage] = useState("");
   const videoRefs = useRef({});
 
-  // Track if we're currently saving (submitting OR loading)
   const isSavingProducts = productFetcher.state !== "idle";
 
-  // Monitor product fetcher state
   useEffect(() => {
-    // When the fetcher completes successfully
     if (productFetcher.state === "idle" && productFetcher.data?.success && productFetcher.data?.action === "attachProducts") {
       setToastMessage("Products updated successfully!");
       setToastActive(true);
       
-      // Close modals
       setAddProductModalActive(false);
       setModifyProductModalActive(false);
       setSelectedVideo(null);
       setSelectedProducts([]);
       setProductSearchValue("");
       
-      // Revalidate to get fresh data
       revalidator.revalidate();
     }
     
-    // Handle errors
     if (productFetcher.state === "idle" && productFetcher.data?.success === false) {
       setToastMessage("Failed to update products. Please try again.");
       setToastActive(true);
@@ -500,7 +516,6 @@ export default function VideoLibrary() {
     const newUploads = files.map((file, index) => ({
       id: `upload-${Date.now()}-${index}`,
       fileName: file.name,
-      progress: 0
     }));
     
     setUploadingFiles(prev => [...prev, ...newUploads]);
@@ -519,8 +534,10 @@ export default function VideoLibrary() {
       });
       
       if (response.ok) {   
-        setToastMessage("Videos uploaded successfully!");
+        setToastMessage("Videos are being processed...");
         setToastActive(true);
+      } else {
+        throw new Error("Upload failed");
       }
     } catch (error) {
       console.error("Upload failed:", error);
@@ -533,6 +550,20 @@ export default function VideoLibrary() {
       setUploading(false);
     }
   };
+
+  const handleUploadComplete = useCallback((uploadId) => {
+    console.log("Upload complete, revalidating data...");
+    
+    // Remove the upload progress card
+    setUploadingFiles(prev => prev.filter(u => u.id !== uploadId));
+    
+    // Revalidate to fetch new videos from database
+    revalidator.revalidate();
+    
+    // Show success message
+    setToastMessage("Video uploaded successfully!");
+    setToastActive(true);
+  }, [revalidator]);
 
   const handleRemoveUpload = useCallback((uploadId) => {
     setUploadingFiles(prev => prev.filter(u => u.id !== uploadId));
@@ -664,6 +695,7 @@ export default function VideoLibrary() {
                     uploadId={upload.id}
                     fileName={upload.fileName}
                     onRemove={handleRemoveUpload}
+                    onComplete={handleUploadComplete}
                   />
                 ))}
               </BlockStack>

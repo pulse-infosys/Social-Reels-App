@@ -64,14 +64,26 @@ export async function getVideoPageById(id, shop) {
 /**
  * Create a new video page for a shop
  */
-export async function createVideoPage({ shop, name, pagePath, pageHandle, widgetType }) {
+// export async function createVideoPage({ shop, name, pagePath, pageHandle, widgetType }) {
+//   return await db.videoPage.create({
+//     data: {
+//       shop,
+//       name,
+//       pagePath,
+//       pageHandle,
+//       widgetType
+//     },
+//   });
+// }
+
+
+export async function createVideoPage({ shop, name, pagePath, pageHandle }) {
   return await db.videoPage.create({
     data: {
       shop,
       name,
       pagePath,
       pageHandle,
-      widgetType
     },
   });
 }
@@ -217,5 +229,34 @@ export async function deleteVideoPage(pageId, shop) {
 
   return await db.videoPage.delete({
     where: { id: pageId },
+  });
+}
+
+
+
+/**
+ * Find or create a video page
+ */
+export async function findOrCreateVideoPage({ shop, name, pagePath, pageHandle }) {
+  // Try to find existing page
+  const existingPage = await db.videoPage.findFirst({
+    where: {
+      shop,
+      pagePath,
+    },
+  });
+
+  if (existingPage) {
+    return existingPage;
+  }
+
+  // Create new page if doesn't exist
+  return await db.videoPage.create({
+    data: {
+      shop,
+      name,
+      pagePath,
+      pageHandle,
+    },
   });
 }
