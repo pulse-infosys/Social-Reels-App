@@ -150,29 +150,56 @@ export async function updateWidgetStatus(widgetId, status) {
 /**
  * Add videos to an existing widget
  */
+// export async function addVideosToWidget(widgetId, videoIds) {
+//   // Get the current max position
+//   const maxPosition = await db.widgetVideo.findFirst({
+//     where: { widgetId },
+//     orderBy: { position: "desc" },
+//     select: { position: true },
+//   });
+
+//   const startPosition = (maxPosition?.position || -1) + 1;
+
+//   // Add new videos
+//   const widgetVideos = videoIds.map((videoId, index) => ({
+//     widgetId,
+//     videoId,
+//     position: startPosition + index,
+//   }));
+
+//   return await db.widgetVideo.createMany({
+//     data: widgetVideos,
+//     skipDuplicates: true, // Skip if video already exists in widget
+//   });
+// }
+
+// app/models/videoPage.server.js
+
 export async function addVideosToWidget(widgetId, videoIds) {
-  // Get the current max position
-  const maxPosition = await db.widgetVideo.findFirst({
+  if (!videoIds || videoIds.length === 0) return;
+
+  // Safely get max position as integer
+  const maxPositionResult = await db.widgetVideo.findFirst({
     where: { widgetId },
     orderBy: { position: "desc" },
     select: { position: true },
   });
 
-  const startPosition = (maxPosition?.position || -1) + 1;
+  // Force integer + fallback to 0
+  const lastPosition = maxPositionResult?.position ?? 0;
+  const startPosition = Number.isInteger(lastPosition) ? lastPosition + 1 : 0;
 
-  // Add new videos
   const widgetVideos = videoIds.map((videoId, index) => ({
     widgetId,
     videoId,
-    position: startPosition + index,
+    position: startPosition + index, // Guaranteed integer
   }));
 
   return await db.widgetVideo.createMany({
     data: widgetVideos,
-    skipDuplicates: true, // Skip if video already exists in widget
+    // skipDuplicates: true,
   });
 }
-
 /**
  * Remove a video from a widget
  */
