@@ -116,39 +116,6 @@ export const loader = async ({ request }) => {
   return json({ videoPages, videos, shopifyPages: allPages });
 };
 
-/* --------------------------------------------------------------- */
-/*  Action – only creates a new video page                         */
-/* --------------------------------------------------------------- */
-// export const action = async ({ request }) => {
-//   const { session } = await authenticate.admin(request);
-//   const formData = await request.formData();
-//   const actionType = formData.get("actionType");
-
-//   if (actionType === "createVideoPage") {
-//     const { createVideoPage } = await import("../models/videoPage.server");
-//     const pageName = formData.get("pageName");
-//     const widgetType = formData.get("widgetType");
-//     const pagePath = formData.get("pagePath");
-//     const videoIds = JSON.parse(formData.get("videoIds") || "[]");
-
-//     try {
-//       await createVideoPage({
-//         shop: session.shop,
-//         name: pageName,
-//         pagePath,
-//         widgetType,
-//         videoIds,
-//       });
-//       return json({ success: true });
-//     } catch (e) {
-//       console.error("Create video page error:", e);
-//       return json({ success: false, error: e.message }, { status: 500 });
-//     }
-//   }
-
-//   return json({ success: false });
-// };
-
 export const action = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const formData = await request.formData();

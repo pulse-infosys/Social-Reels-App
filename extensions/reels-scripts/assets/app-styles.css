@@ -1,0 +1,713 @@
+/* extensions/shoppable-videos/assets/app-styles.css */
+
+/* ==================== VARIABLES ==================== */
+:root {
+  --sv-primary: #000000;
+  --sv-secondary: #ffffff;
+  --sv-accent: #ff4081;
+  --sv-text: #333333;
+  --sv-text-light: #666666;
+  --sv-border: #e0e0e0;
+  --sv-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  --sv-radius: 12px;
+  --sv-radius-sm: 8px;
+  --sv-transition: 0.3s ease;
+}
+
+/* ==================== MODAL BASE ==================== */
+.sv-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sv-modal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+}
+
+.sv-modal-content {
+  position: relative;
+  z-index: 1;
+  max-width: 95vw;
+  max-height: 95vh;
+  background: var(--sv-secondary);
+  border-radius: var(--sv-radius);
+  overflow: hidden;
+}
+
+.sv-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: rgba(0, 0, 0, 0.5);
+  color: white;
+  font-size: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--sv-transition);
+}
+
+.sv-modal-close:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+/* ==================== STORY WIDGET ==================== */
+.sv-story-container {
+  padding: 16px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sv-story-list {
+  display: flex;
+  gap: 16px;
+}
+
+.sv-story-item {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.sv-story-thumbnail {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.sv-story-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sv-story-ring {
+  position: absolute;
+  top: -3px;
+  left: -3px;
+  right: -3px;
+  bottom: -3px;
+  border: 3px solid var(--sv-accent);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.sv-story-title {
+  font-size: 12px;
+  color: var(--sv-text);
+  text-align: center;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Story Modal */
+.sv-story-modal .sv-modal-content {
+  width: 400px;
+  max-width: 100%;
+  height: 90vh;
+  max-height: 700px;
+  background: #000;
+  display: flex;
+  flex-direction: column;
+}
+
+.sv-story-viewer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.sv-story-progress {
+  display: flex;
+  gap: 4px;
+  padding: 12px 16px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+}
+
+.sv-progress-bar {
+  flex: 1;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.sv-progress-fill {
+  height: 100%;
+  background: white;
+  width: 0;
+  transition: width 0.1s linear;
+}
+
+.sv-progress-bar.sv-viewed .sv-progress-fill {
+  width: 100%;
+}
+
+.sv-progress-bar.sv-active .sv-progress-fill {
+  background: var(--sv-accent);
+}
+
+.sv-story-video-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.sv-story-video-container video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.sv-story-nav {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  transform: translateY(-50%);
+  display: flex;
+  justify-content: space-between;
+  padding: 0 8px;
+  pointer-events: none;
+}
+
+.sv-story-nav button {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  font-size: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: var(--sv-transition);
+}
+
+.sv-story-nav button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.sv-story-nav button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.sv-story-products {
+  padding: 16px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+
+/* ==================== FLOATING WIDGET ==================== */
+.sv-floating-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 99999;
+}
+
+.sv-floating-bubble {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: var(--sv-shadow);
+  border: 3px solid var(--sv-accent);
+  transition: transform var(--sv-transition);
+}
+
+.sv-floating-bubble:hover {
+  transform: scale(1.1);
+}
+
+.sv-floating-bubble video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sv-floating-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 24px;
+  height: 24px;
+  background: var(--sv-accent);
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Floating Modal */
+.sv-floating-modal .sv-modal-content {
+  width: 900px;
+  max-width: 95vw;
+  height: 80vh;
+  max-height: 600px;
+}
+
+.sv-floating-viewer {
+  display: flex;
+  height: 100%;
+}
+
+.sv-video-main {
+  flex: 2;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sv-video-main video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.sv-floating-sidebar {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--sv-border);
+  max-width: 300px;
+}
+
+.sv-video-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sv-video-thumb {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border-radius: var(--sv-radius-sm);
+  cursor: pointer;
+  transition: var(--sv-transition);
+}
+
+.sv-video-thumb:hover,
+.sv-video-thumb.sv-active {
+  background: #f5f5f5;
+}
+
+.sv-video-thumb.sv-active {
+  border-left: 3px solid var(--sv-accent);
+}
+
+.sv-video-thumb img {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: var(--sv-radius-sm);
+}
+
+.sv-video-thumb span {
+  font-size: 13px;
+  color: var(--sv-text);
+}
+
+.sv-products-panel {
+  padding: 16px;
+  border-top: 1px solid var(--sv-border);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.sv-products-panel h4 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--sv-text);
+}
+
+/* ==================== CAROUSEL WIDGET ==================== */
+.sv-carousel-container {
+  padding: 32px 16px;
+  background: #fafafa;
+}
+
+.sv-carousel-wrapper {
+  position: relative;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.sv-carousel-track {
+  display: flex;
+  gap: 16px;
+  transition: transform 0.4s ease;
+  overflow: hidden;
+}
+
+.sv-carousel-slide {
+  flex: 0 0 calc(25% - 12px);
+  cursor: pointer;
+  transition: var(--sv-transition);
+}
+
+.sv-carousel-slide:hover {
+  transform: translateY(-4px);
+}
+
+.sv-carousel-video-wrapper {
+  position: relative;
+  aspect-ratio: 9/16;
+  border-radius: var(--sv-radius);
+  overflow: hidden;
+  background: #000;
+}
+
+.sv-carousel-video-wrapper video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sv-play-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  transition: opacity var(--sv-transition);
+}
+
+.sv-carousel-info {
+  padding: 12px 0;
+}
+
+.sv-carousel-info h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--sv-text);
+}
+
+.sv-carousel-products {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.sv-mini-product {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sv-mini-product img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sv-carousel-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: var(--sv-secondary);
+  color: var(--sv-text);
+  font-size: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: var(--sv-shadow);
+  transition: var(--sv-transition);
+  z-index: 5;
+}
+
+.sv-carousel-nav:hover:not(:disabled) {
+  background: var(--sv-primary);
+  color: var(--sv-secondary);
+}
+
+.sv-carousel-nav:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.sv-carousel-nav.sv-prev {
+  left: -22px;
+}
+
+.sv-carousel-nav.sv-next {
+  right: -22px;
+}
+
+/* Carousel Modal */
+.sv-carousel-modal .sv-modal-content {
+  width: 1000px;
+  max-width: 95vw;
+  height: auto;
+  max-height: 90vh;
+}
+
+.sv-carousel-viewer {
+  display: flex;
+}
+
+.sv-video-section {
+  flex: 2;
+  background: #000;
+  aspect-ratio: 9/16;
+  max-height: 80vh;
+}
+
+.sv-video-section video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.sv-products-section {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+  max-width: 350px;
+}
+
+.sv-products-section h3 {
+  margin: 0 0 16px;
+  font-size: 18px;
+  color: var(--sv-text);
+}
+
+/* ==================== PRODUCTS GRID ==================== */
+.sv-products-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.sv-product-card {
+  display: block;
+  text-decoration: none;
+  background: var(--sv-secondary);
+  border-radius: var(--sv-radius-sm);
+  overflow: hidden;
+  transition: var(--sv-transition);
+}
+
+.sv-product-card:hover {
+  transform: scale(1.02);
+  box-shadow: var(--sv-shadow);
+}
+
+.sv-product-card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.sv-product-info {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sv-product-title {
+  font-size: 12px;
+  color: var(--sv-text);
+}
+
+.sv-product-price {
+  font-size: 13px;
+  font-weight: bold;
+  color: var(--sv-accent);
+}
+
+/* Products Detailed */
+.sv-products-detailed {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sv-product-detail-card {
+  display: flex;
+  gap: 16px;
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: var(--sv-radius-sm);
+}
+
+.sv-product-detail-card img {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: var(--sv-radius-sm);
+}
+
+.sv-product-detail-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sv-product-detail-info h4 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--sv-text);
+}
+
+.sv-price {
+  font-size: 16px;
+  font-weight: bold;
+  color: var(--sv-accent);
+}
+
+.sv-view-btn {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 8px 16px;
+  background: var(--sv-primary);
+  color: var(--sv-secondary);
+  text-decoration: none;
+  border-radius: 4px;
+  font-size: 12px;
+  transition: var(--sv-transition);
+}
+
+.sv-view-btn:hover {
+  background: #333;
+}
+
+.sv-no-products {
+  color: var(--sv-text-light);
+  font-size: 13px;
+  text-align: center;
+  padding: 16px;
+}
+
+/* ==================== RESPONSIVE ==================== */
+@media (max-width: 992px) {
+  .sv-carousel-slide {
+    flex: 0 0 calc(33.333% - 11px);
+  }
+  
+  .sv-floating-viewer {
+    flex-direction: column;
+  }
+  
+  .sv-floating-sidebar {
+    max-width: none;
+    border-left: none;
+    border-top: 1px solid var(--sv-border);
+  }
+  
+  .sv-video-list {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  
+  .sv-video-thumb {
+    flex: 0 0 auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .sv-carousel-slide {
+    flex: 0 0 calc(50% - 8px);
+  }
+  
+  .sv-carousel-nav {
+    display: none;
+  }
+  
+  .sv-carousel-track {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+  }
+  
+  .sv-carousel-slide {
+    scroll-snap-align: start;
+  }
+  
+  .sv-carousel-viewer {
+    flex-direction: column;
+  }
+  
+  .sv-products-section {
+    max-width: none;
+  }
+  
+  .sv-story-modal .sv-modal-content {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border-radius: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .sv-carousel-slide {
+    flex: 0 0 calc(100% - 32px);
+  }
+  
+  .sv-story-thumbnail {
+    width: 64px;
+    height: 64px;
+  }
+  
+  .sv-floating-bubble {
+    width: 64px;
+    height: 64px;
+  }
+}

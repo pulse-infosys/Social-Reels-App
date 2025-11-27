@@ -1,7 +1,7 @@
 // app/components/CreateWidgetModal.jsx
 
 import { useState, useCallback, useEffect, useMemo } from "react";
-import { useFetcher } from "@remix-run/react";
+import { useFetcher, useNavigate } from "@remix-run/react";
 import {
   Modal,
   BlockStack,
@@ -12,6 +12,7 @@ import {
   Spinner,
   EmptyState,
   TextField,
+  Button,
 } from "@shopify/polaris";
 
 export default function CreateWidgetModal({
@@ -29,6 +30,7 @@ export default function CreateWidgetModal({
   const [selectedVideos, setSelectedVideos] = useState([]);
   const [videoSearchValue, setVideoSearchValue] = useState("");
   const [selectAll, setSelectAll] = useState(false);
+  const navigate = useNavigate();
 
   const isCreating = fetcher.state !== "idle";
 
@@ -194,8 +196,11 @@ export default function CreateWidgetModal({
                   {selectedVideos.length} of {filteredVideos.length} video
                   {filteredVideos.length !== 1 ? "s" : ""} selected
                 </Text>
-              </InlineStack>
+              </InlineStack> 
+              <Button onClick={navigate('/app')} variant="primary">Upload Video</Button>
             </InlineStack>
+
+
 
             {/* Video list – horizontal rows like your screenshot */}
             <div

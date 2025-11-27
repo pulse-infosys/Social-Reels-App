@@ -1,0 +1,20 @@
+<div
+  class="reels-widget-container"
+  id="reels-carousel-{{ section.id }}"
+  data-shop="{{ shop.permanent_domain }}"
+  data-path="{{ request.path }}"
+  data-widget-type="carousel"
+>
+</div>
+
+{{ 'app-styles.css' | asset_url | stylesheet_tag }}
+
+<script src="{{ 'reels-widget.js' | asset_url }}" defer></script>
+
+{% schema %}
+{
+  "name": "Reels Carousel Widget",
+  "target": "section",
+  "settings": []
+}
+{% endschema %}

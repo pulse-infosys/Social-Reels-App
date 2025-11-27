@@ -25,3 +25,8 @@ scopes = "write_products,read_products,write_content,read_content,write_files,re
 
 [auth]
 redirect_urls = [ "https://example.com/api/auth" ]
+
+[app_proxy]
+url = "https://pulsecarttransform.myshopify.com/apps/shoppable-videos"
+prefix = "apps"
+subpath = "shoppable-videos"

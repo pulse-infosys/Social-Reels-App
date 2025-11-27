@@ -1,13 +1,6 @@
-// app/routes/app.page-editor.$id.jsx
-
 import { json } from "@remix-run/node";
-import {
-  useLoaderData,
-  useNavigate,
-  useFetcher,
-  useRevalidator,
-} from "@remix-run/react";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useLoaderData, useNavigate, useFetcher } from "@remix-run/react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Frame,
   Page,
@@ -31,14 +24,9 @@ import {
   Spinner,
   Banner,
 } from "@shopify/polaris";
-import {
-  DragHandleIcon,
-  ViewIcon,
-  HideIcon, // NEW: closed-eye icon
-  DeleteIcon,
-} from "@shopify/polaris-icons";
+import { DragHandleIcon, ViewIcon, HideIcon, DeleteIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
-import CreateWidgetModal from "../components/CreateWidgetModal";
+import CreateVideoPageModal from "../components/CreateVideoPageModal";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 
 /* ======================= LOADER ======================= */
@@ -50,10 +38,14 @@ export const loader = async ({ request, params }) => {
   const { getVideoPageById } = await import("../models/videoPage.server");
   const { getVideos } = await import("../models/video.server");
   const { getProducts } = await import("../models/product.server");
+  const { getAllShopifyResources } = await import(
+    "../utils/shopifyResources.server"
+  );
 
   const videoPage = await getVideoPageById(id, session.shop);
   const allVideos = await getVideos(session.shop);
   const products = await getProducts(session.shop);
+  const { shopifyPages } = await getAllShopifyResources(admin);
 
   if (!videoPage) {
     throw new Response("Video Page not found", { status: 404 });
@@ -64,6 +56,7 @@ export const loader = async ({ request, params }) => {
     allVideos,
     products,
     shop: session.shop,
+    shopifyPages,
   });
 };
 
@@ -76,64 +69,16 @@ export const action = async ({ request, params }) => {
   const actionType = formData.get("actionType");
 
   if (actionType === "createWidget") {
-    const { createWidget, getVideoPageById } = await import(
-      "../models/videoPage.server"
-    );
+    const { createWidget } = await import("../models/videoPage.server");
     const widgetType = formData.get("widgetType");
     const videoIds = JSON.parse(formData.get("videoIds") || "[]");
 
     try {
-      const videoPage = await getVideoPageById(id, session.shop);
-
-      if (!videoPage) {
-        return json(
-          {
-            success: false,
-            error: "Video page not found",
-          },
-          { status: 404 },
-        );
-      }
-
-      const widgetTypeMap = {
-        carousel: "carousel",
-        story: "stories",
-        floating: "floating",
-      };
-
-      const normalizedType = widgetTypeMap[widgetType] || widgetType;
-
-      const existingWidget = videoPage.widgets?.find(
-        (w) =>
-          w.widgetType === normalizedType ||
-          w.widgetType === widgetType ||
-          (widgetType === "story" &&
-            (w.widgetType === "stories" || w.widgetType.includes("story"))),
-      );
-
-      if (existingWidget) {
-        const widgetDisplayName =
-          widgetType.charAt(0).toUpperCase() + widgetType.slice(1);
-        return json(
-          {
-            success: false,
-            error: `${widgetDisplayName} widget already exists on ${videoPage.name}. You can only have one widget of each type on a page.`,
-          },
-          { status: 400 },
-        );
-      }
-
       await createWidget(id, widgetType, videoIds, session.shop);
       return json({ success: true, action: "createWidget" });
     } catch (error) {
       console.error("Error creating widget:", error);
-      return json(
-        {
-          success: false,
-          error: error.message || "Failed to create widget. Please try again.",
-        },
-        { status: 500 },
-      );
+      return json({ success: false, error: error.message }, { status: 500 });
     }
   }
 
@@ -144,10 +89,7 @@ export const action = async ({ request, params }) => {
 
     try {
       await updateWidgetStatus(widgetId, status);
-      return json({
-        success: true,
-        action: "updateWidgetStatus",
-      });
+      return json({ success: true, action: "updateWidgetStatus", widgetId, status });
     } catch (error) {
       console.error("Error updating status:", error);
       return json({ success: false, error: error.message }, { status: 500 });
@@ -161,10 +103,7 @@ export const action = async ({ request, params }) => {
 
     try {
       await reorderWidgetVideos(widgetId, videoIds);
-      return json({
-        success: true,
-        action: "reorderVideos",
-      });
+      return json({ success: true, action: "reorderVideos" });
     } catch (error) {
       console.error("Error reordering videos:", error);
       return json({ success: false, error: error.message }, { status: 500 });
@@ -178,10 +117,7 @@ export const action = async ({ request, params }) => {
 
     try {
       await attachProductsToVideo(videoId, productIds);
-      return json({
-        success: true,
-        action: "attachProducts",
-      });
+      return json({ success: true, action: "attachProducts", videoId, productIds });
     } catch (error) {
       console.error("Error attaching products:", error);
       return json({ success: false, error: error.message }, { status: 500 });
@@ -189,18 +125,13 @@ export const action = async ({ request, params }) => {
   }
 
   if (actionType === "deleteVideo") {
-    const { removeVideoFromWidget } = await import(
-      "../models/videoPage.server"
-    );
+    const { removeVideoFromWidget } = await import("../models/videoPage.server");
     const widgetId = formData.get("widgetId");
     const videoId = formData.get("videoId");
 
     try {
       await removeVideoFromWidget(widgetId, videoId);
-      return json({
-        success: true,
-        action: "deleteVideo",
-      });
+      return json({ success: true, action: "deleteVideo", widgetId, videoId });
     } catch (error) {
       console.error("Error removing video:", error);
       return json({ success: false, error: error.message }, { status: 500 });
@@ -213,39 +144,45 @@ export const action = async ({ request, params }) => {
 /* ======================= COMPONENT ======================= */
 
 export default function VideoPageEdit() {
-  const { videoPage, allVideos, products } = useLoaderData();
+  const { videoPage, allVideos, products, shopifyPages } = useLoaderData();
   const navigate = useNavigate();
   const fetcher = useFetcher();
   const productFetcher = useFetcher();
-  const revalidator = useRevalidator();
 
-  // Track last handled fetcher results so toast doesn't fire repeatedly
-  const lastFetcherResultRef = useRef(null);
-  const lastProductFetcherResultRef = useRef(null);
+  const lastFetcherDataRef = useRef(null);
+  const lastProductFetcherDataRef = useRef(null);
 
   const [toastActive, setToastActive] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
-  const [selectedTab, setSelectedTab] = useState(0);
-  const [createWidgetModalActive, setCreateWidgetModalActive] = useState(false);
-  const [selectedWidgetType, setSelectedWidgetType] = useState("");
+  const [toastError, setToastError] = useState(false);
 
-  // Preview state
+  const [selectedTab, setSelectedTab] = useState(0);
+
+  // Create page/widget modal
+  const [createWidgetModalOpen, setCreateWidgetModalOpen] = useState(false);
+  const [modalWidgetType, setModalWidgetType] = useState("");
+
+  // Preview
   const [previewVideo, setPreviewVideo] = useState(null);
 
-  // Product attachment modal states
+  // Product modal
   const [addProductModalActive, setAddProductModalActive] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [selectedProducts, setSelectedProducts] = useState([]);
+  const [originalProducts, setOriginalProducts] = useState([]);
   const [productSearchValue, setProductSearchValue] = useState("");
 
-  // Local state for video order
+  // Local video lists
   const [carouselVideos, setCarouselVideos] = useState([]);
   const [storyVideos, setStoryVideos] = useState([]);
   const [floatingVideos, setFloatingVideos] = useState([]);
 
-  const isSavingProducts = productFetcher.state !== "idle";
+  const isSavingProducts =
+    productFetcher.state !== "idle" &&
+    productFetcher.formData?.get("actionType") === "attachProducts";
 
-  // Get widgets for each type
+  /* ---------- Init local lists from loader (once per loader run) ---------- */
+
   const carouselWidget = videoPage.widgets?.find(
     (w) => w.widgetType === "carousel",
   );
@@ -256,28 +193,30 @@ export default function VideoPageEdit() {
     (w) => w.widgetType === "floating",
   );
 
-  // Initialize video lists
   useEffect(() => {
     if (carouselWidget?.widgetVideos) {
-      const videos = carouselWidget.widgetVideos
-        .map((wv) => allVideos.find((v) => v.id === wv.videoId))
-        .filter(Boolean);
-      setCarouselVideos(videos);
-    }
+      setCarouselVideos(
+        carouselWidget.widgetVideos
+          .map((wv) => allVideos.find((v) => v.id === wv.videoId))
+          .filter(Boolean),
+      );
+    } else setCarouselVideos([]);
 
     if (storyWidget?.widgetVideos) {
-      const videos = storyWidget.widgetVideos
-        .map((wv) => allVideos.find((v) => v.id === wv.videoId))
-        .filter(Boolean);
-      setStoryVideos(videos);
-    }
+      setStoryVideos(
+        storyWidget.widgetVideos
+          .map((wv) => allVideos.find((v) => v.id === wv.videoId))
+          .filter(Boolean),
+      );
+    } else setStoryVideos([]);
 
     if (floatingWidget?.widgetVideos) {
-      const videos = floatingWidget.widgetVideos
-        .map((wv) => allVideos.find((v) => v.id === wv.videoId))
-        .filter(Boolean);
-      setFloatingVideos(videos);
-    }
+      setFloatingVideos(
+        floatingWidget.widgetVideos
+          .map((wv) => allVideos.find((v) => v.id === wv.videoId))
+          .filter(Boolean),
+      );
+    } else setFloatingVideos([]);
   }, [carouselWidget, storyWidget, floatingWidget, allVideos]);
 
   const tabs = [
@@ -295,63 +234,70 @@ export default function VideoPageEdit() {
     },
   ];
 
-  /* ---------- Handle main fetcher responses ---------- */
+  /* ---------- Fetcher responses (create, status, reorder, delete) ---------- */
 
   useEffect(() => {
     if (fetcher.state !== "idle" || !fetcher.data) return;
-
-    if (lastFetcherResultRef.current === fetcher.data) return;
-    lastFetcherResultRef.current = fetcher.data;
+    if (lastFetcherDataRef.current === fetcher.data) return;
+    lastFetcherDataRef.current = fetcher.data;
 
     if (fetcher.data.success) {
-      if (fetcher.data.action === "createWidget") {
-        setToastMessage("Widget created successfully!");
-        setCreateWidgetModalActive(false);
-        setSelectedWidgetType("");
-      } else if (fetcher.data.action === "updateWidgetStatus") {
-        setToastMessage("Widget status updated successfully!");
-      } else if (fetcher.data.action === "deleteVideo") {
-        setToastMessage("Video removed successfully!");
-      } else {
-        setToastMessage("Changes saved successfully!");
-      }
+      const msgMap = {
+        createWidget: "Widget created successfully!",
+        updateWidgetStatus: "Widget status updated successfully!",
+        reorderVideos: "Video order updated!",
+        deleteVideo: "Video removed from widget!",
+      };
+      setToastMessage(msgMap[fetcher.data.action] || "Changes saved!");
+      setToastError(false);
       setToastActive(true);
 
-      revalidator.revalidate();
-    } else if (fetcher.data.success === false && fetcher.data.error) {
-      setToastMessage(fetcher.data.error);
+      // Safe "reload" using navigate, NOT window.location.reload
+      if (fetcher.data.action !== "reorderVideos") {
+        navigate(".", { replace: true });
+      }
+    } else if (fetcher.data.error) {
+      setToastMessage(fetcher.data.error || "Failed to save changes.");
+      setToastError(true);
       setToastActive(true);
     }
-  }, [fetcher.state, fetcher.data, revalidator]);
+  }, [fetcher.state, fetcher.data, navigate]);
 
-  /* ---------- Handle product attach fetcher ---------- */
+  /* ---------- Product fetcher responses ---------- */
 
   useEffect(() => {
     if (productFetcher.state !== "idle" || !productFetcher.data) return;
-
-    if (lastProductFetcherResultRef.current === productFetcher.data) return;
-    lastProductFetcherResultRef.current = productFetcher.data;
+    if (lastProductFetcherDataRef.current === productFetcher.data) return;
+    lastProductFetcherDataRef.current = productFetcher.data;
 
     if (
       productFetcher.data.success &&
       productFetcher.data.action === "attachProducts"
     ) {
       setToastMessage("Products attached successfully!");
+      setToastError(false);
       setToastActive(true);
+
       setAddProductModalActive(false);
       setSelectedVideo(null);
       setSelectedProducts([]);
+      setOriginalProducts([]);
       setProductSearchValue("");
 
-      revalidator.revalidate();
+      // Simple navigate reload
+      navigate(".", { replace: true });
+    } else if (productFetcher.data.error) {
+      setToastMessage(productFetcher.data.error || "Failed to attach products.");
+      setToastError(true);
+      setToastActive(true);
     }
-  }, [productFetcher.state, productFetcher.data, revalidator]);
+  }, [productFetcher.state, productFetcher.data, navigate]);
 
   /* ---------- Handlers ---------- */
 
   const handleOpenCreateWidget = (widgetType) => {
-    setSelectedWidgetType(widgetType);
-    setCreateWidgetModalActive(true);
+    setModalWidgetType(widgetType);
+    setCreateWidgetModalOpen(true);
   };
 
   const handleToggleWidgetStatus = (widgetId, currentStatus) => {
@@ -366,7 +312,9 @@ export default function VideoPageEdit() {
   };
 
   const handleDeleteVideo = (widgetId, videoId) => {
-    if (!confirm("Are you sure you want to remove this video from the widget?"))
+    if (
+      !confirm("Are you sure you want to remove this video from the widget?")
+    )
       return;
 
     const formData = new FormData();
@@ -378,8 +326,10 @@ export default function VideoPageEdit() {
   };
 
   const handleOpenAddProductModal = useCallback((video) => {
+    const ids = video.videoProducts?.map((vp) => vp.productId) || [];
     setSelectedVideo(video);
-    setSelectedProducts(video.videoProducts?.map((vp) => vp.productId) || []);
+    setSelectedProducts(ids);
+    setOriginalProducts(ids);
     setAddProductModalActive(true);
   }, []);
 
@@ -406,7 +356,7 @@ export default function VideoPageEdit() {
     productFetcher.submit(formData, { method: "post" });
   }, [selectedVideo, selectedProducts, productFetcher, isSavingProducts]);
 
-  // Handle drag end
+  // DnD
   const handleDragEnd = (result, widgetId, widgetType) => {
     if (!result.destination) return;
 
@@ -440,53 +390,47 @@ export default function VideoPageEdit() {
     fetcher.submit(formData, { method: "post" });
   };
 
-  // Toggle preview: if same video clicked again, hide
+  // ✅ Preview toggle (View / Hide)
   const handleTogglePreviewVideo = (video) => {
-    setPreviewVideo((prev) => (prev && prev.id === video.id ? null : video));
+    setPreviewVideo((prev) => (prev?.id === video.id ? null : video));
   };
 
   const filteredProducts = products.filter((product) =>
     product.title.toLowerCase().includes(productSearchValue.toLowerCase()),
   );
 
-  /* ---------- Render widget tab content ---------- */
+  // ✅ Save only when products changed
+  const hasProductChanges = useMemo(() => {
+    if (!selectedVideo) return false;
+    if (selectedProducts.length !== originalProducts.length) return true;
+    const a = [...selectedProducts].sort();
+    const b = [...originalProducts].sort();
+    return !a.every((id, i) => id === b[i]);
+  }, [selectedVideo, selectedProducts, originalProducts]);
+
+  /* ---------- Render Widget Content ---------- */
 
   const renderWidgetContent = (widget, widgetType) => {
     if (!widget || !widget.isCreated) {
       return (
         <div style={{ padding: "40px 16px" }}>
           <BlockStack gap="400" align="center">
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "18px",
-              }}
-            >
-              <Text variant="bodyMd" tone="subdued" alignment="center">
-                You have not created <strong>{widgetType}</strong> widget for
-                this page. Click on the button below to create it
-              </Text>
-              <Button
-                onClick={() => handleOpenCreateWidget(widgetType)}
-                variant="primary"
-              >
-                + Create {widgetType} widget
-              </Button>
-            </div>
+            <Text variant="bodyMd" tone="subdued" alignment="center">
+              You have not created <strong>{widgetType}</strong> widget for
+              this page. Click on the button below to create it
+            </Text>
+            <Button onClick={() => handleOpenCreateWidget(widgetType)}>
+              + Create {widgetType} widget
+            </Button>
           </BlockStack>
         </div>
       );
     }
 
     let videosList;
-    if (widgetType === "carousel") {
-      videosList = carouselVideos;
-    } else if (widgetType === "story") {
-      videosList = storyVideos;
-    } else {
-      videosList = floatingVideos;
-    }
+    if (widgetType === "carousel") videosList = carouselVideos;
+    else if (widgetType === "story") videosList = storyVideos;
+    else videosList = floatingVideos;
 
     return (
       <div style={{ padding: "16px" }}>
@@ -497,9 +441,7 @@ export default function VideoPageEdit() {
                 {widget.status === "live" ? "Live" : "Draft"}
               </Badge>
               <div
-                onClick={() =>
-                  handleToggleWidgetStatus(widget.id, widget.status)
-                }
+                onClick={() => handleToggleWidgetStatus(widget.id, widget.status)}
                 style={{
                   width: "40px",
                   height: "24px",
@@ -537,12 +479,7 @@ export default function VideoPageEdit() {
           </InlineStack>
 
           {videosList.length === 0 ? (
-            <div
-              style={{
-                padding: "40px 0",
-                textAlign: "center",
-              }}
-            >
+            <div style={{ padding: "40px 0", textAlign: "center" }}>
               <BlockStack gap="200">
                 <Text variant="headingMd" as="h3">
                   You have not added any videos to this widget
@@ -563,13 +500,12 @@ export default function VideoPageEdit() {
                   <div {...provided.droppableProps} ref={provided.innerRef}>
                     <BlockStack gap="300">
                       {videosList.map((video, index) => {
-                        const draggableId = String(video.id); // ensure string id
                         const isPreviewed = previewVideo?.id === video.id;
 
                         return (
                           <Draggable
-                            key={draggableId}
-                            draggableId={draggableId}
+                            key={video.id}
+                            draggableId={video.id}
                             index={index}
                           >
                             {(provided, snapshot) => (
@@ -589,9 +525,7 @@ export default function VideoPageEdit() {
                                   >
                                     <div
                                       {...provided.dragHandleProps}
-                                      style={{
-                                        cursor: "grab",
-                                      }}
+                                      style={{ cursor: "grab" }}
                                     >
                                       <Icon
                                         source={DragHandleIcon}
@@ -620,9 +554,9 @@ export default function VideoPageEdit() {
                                       />
                                     </div>
 
-                                    {/* Product pill area */}
+                                    {/* Product pill area - clickable */}
                                     <div
-                                      style={{ flex: 1 }}
+                                      style={{ flex: 1, cursor: "pointer" }}
                                       onClick={() =>
                                         handleOpenAddProductModal(video)
                                       }
@@ -653,8 +587,8 @@ export default function VideoPageEdit() {
                                                   whiteSpace: "nowrap",
                                                 }}
                                               >
-                                                {video.videoProducts[0]?.product
-                                                  ?.title || "Product"}
+                                                {video.videoProducts[0]
+                                                  ?.product?.title || "Product"}
                                               </span>
                                             </InlineStack>
                                           </Badge>
@@ -682,7 +616,9 @@ export default function VideoPageEdit() {
 
                                     <InlineStack gap="200">
                                       <Button
-                                        icon={isPreviewed ? HideIcon : ViewIcon}
+                                        icon={
+                                          isPreviewed ? HideIcon : ViewIcon
+                                        }
                                         variant="plain"
                                         onClick={() =>
                                           handleTogglePreviewVideo(video)
@@ -719,12 +655,11 @@ export default function VideoPageEdit() {
   const toastMarkup = toastActive ? (
     <Toast
       content={toastMessage}
+      error={toastError}
       duration={3000}
       onDismiss={() => setToastActive(false)}
     />
   ) : null;
-
-  /* ---------- JSX ---------- */
 
   return (
     <Frame>
@@ -737,9 +672,7 @@ export default function VideoPageEdit() {
         }}
         primaryAction={{
           content: "Preview in theme",
-          onAction: () => {
-            window.open(videoPage.pagePath, "_blank");
-          },
+          onAction: () => window.open(videoPage.pagePath, "_blank"),
         }}
       >
         <Layout>
@@ -752,7 +685,8 @@ export default function VideoPageEdit() {
               >
                 {selectedTab === 0 &&
                   renderWidgetContent(carouselWidget, "carousel")}
-                {selectedTab === 1 && renderWidgetContent(storyWidget, "story")}
+                {selectedTab === 1 &&
+                  renderWidgetContent(storyWidget, "story")}
                 {selectedTab === 2 &&
                   renderWidgetContent(floatingWidget, "floating")}
               </Tabs>
@@ -778,12 +712,7 @@ export default function VideoPageEdit() {
                   }}
                 >
                   {previewVideo ? (
-                    <div
-                      style={{
-                        width: "100%",
-                        maxWidth: "300px",
-                      }}
-                    >
+                    <div style={{ width: "100%", maxWidth: "300px" }}>
                       <video
                         src={previewVideo.videoUrl}
                         poster={previewVideo.thumbnailUrl}
@@ -823,7 +752,7 @@ export default function VideoPageEdit() {
                     </div>
                   ) : (
                     <Text variant="bodyMd" tone="subdued">
-                      Click on a video to preview it
+                      Click on the eye icon to preview a video
                     </Text>
                   )}
                 </div>
@@ -832,39 +761,47 @@ export default function VideoPageEdit() {
           </Layout.Section>
         </Layout>
 
-        {/* Create Widget Modal */}
-        <CreateWidgetModal
-          isOpen={createWidgetModalActive}
-          onClose={() => {
-            setCreateWidgetModalActive(false);
-            setSelectedWidgetType("");
-          }}
+        {/* Page Create Modal (old behavior) */}
+        <CreateVideoPageModal
+          isOpen={createWidgetModalOpen}
+          onClose={() => setCreateWidgetModalOpen(false)}
+          shopifyPages={shopifyPages}
           videos={allVideos}
-          widgetType={selectedWidgetType}
-          pageId={videoPage.id}
-          pageName={videoPage.name}
-          actionUrl={`/app/page-editor/${videoPage.id}`}
           onSuccess={() => {
-            setToastMessage("Widget created successfully!");
-            setToastActive(true);
+            console.log("Page created!");
           }}
+          actionUrl="/app/video-pages"
         />
 
-        {/* Add Products Modal */}
+        {/* Products Modal */}
         <Modal
           open={addProductModalActive}
-          onClose={() => setAddProductModalActive(false)}
+          onClose={() => {
+            if (isSavingProducts) return;
+            setAddProductModalActive(false);
+            setSelectedVideo(null);
+            setSelectedProducts([]);
+            setOriginalProducts([]);
+            setProductSearchValue("");
+          }}
           title="Add products"
           primaryAction={{
-            content: isSavingProducts ? "Saving..." : "Add",
+            content: isSavingProducts ? "Saving..." : "Save",
             onAction: handleSaveProducts,
-            disabled: isSavingProducts,
+            disabled: isSavingProducts || !hasProductChanges,
             loading: isSavingProducts,
           }}
           secondaryActions={[
             {
               content: "Cancel",
-              onAction: () => setAddProductModalActive(false),
+              onAction: () => {
+                if (isSavingProducts) return;
+                setAddProductModalActive(false);
+                setSelectedVideo(null);
+                setSelectedProducts([]);
+                setOriginalProducts([]);
+                setProductSearchValue("");
+              },
               disabled: isSavingProducts,
             },
           ]}
@@ -897,6 +834,11 @@ export default function VideoPageEdit() {
               <Text as="p" variant="bodySm" tone="subdued">
                 {selectedProducts.length} product
                 {selectedProducts.length !== 1 ? "s" : ""} selected
+                {hasProductChanges && selectedVideo && (
+                  <span style={{ color: "#2C6ECB", marginLeft: "6px" }}>
+                    • Unsaved changes
+                  </span>
+                )}
               </Text>
 
               <div
@@ -909,10 +851,7 @@ export default function VideoPageEdit() {
               >
                 {filteredProducts.length > 0 ? (
                   <ResourceList
-                    resourceName={{
-                      singular: "product",
-                      plural: "products",
-                    }}
+                    resourceName={{ singular: "product", plural: "products" }}
                     items={filteredProducts}
                     renderItem={(product) => {
                       const { id, title, image } = product;
@@ -929,9 +868,7 @@ export default function VideoPageEdit() {
                         <ResourceItem
                           id={id}
                           media={media}
-                          onClick={() =>
-                            !isSavingProducts && handleToggleProduct(id)
-                          }
+                          onClick={() => handleToggleProduct(id)}
                         >
                           <InlineStack
                             align="space-between"

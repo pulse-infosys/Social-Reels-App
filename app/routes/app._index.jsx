@@ -5,7 +5,7 @@ import {
   useFetcher,
   useRevalidator,
 } from "@remix-run/react";
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
   Page,
   Layout,
@@ -30,10 +30,10 @@ import {
   Box,
   Toast,
   Frame,
+  Pagination,
 } from "@shopify/polaris";
 import { DeleteIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
-import { attachProductsToVideo } from "../models/product.server";
 
 // GraphQL query to fetch products with pagination
 const PRODUCTS_QUERY = `
@@ -103,20 +103,14 @@ async function fetchAllProducts(admin) {
   return allProducts;
 }
 
+// Loader - Only fetch videos, NOT products
 export const loader = async ({ request }) => {
-  const { admin, session } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
 
   const url = new URL(request.url);
   const searchQuery = url.searchParams.get("search");
 
   const { getVideos, searchVideos } = await import("../models/video.server");
-  const { getProducts, syncProductsFromShopify } = await import(
-    "../models/product.server"
-  );
-
-  const shopifyProducts = await fetchAllProducts(admin);
-  await syncProductsFromShopify(shopifyProducts, session.shop);
-  const products = await getProducts(session.shop);
 
   let videos;
   if (searchQuery) {
@@ -127,17 +121,46 @@ export const loader = async ({ request }) => {
 
   return json({
     videos: videos ?? [],
-    products,
     shop: session.shop,
   });
 };
 
+// Action - Handle all form submissions
 export const action = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
   const actionType = formData.get("actionType");
 
+  // Fetch products when modal opens
+  if (actionType === "fetchProducts") {
+    const { getProducts, syncProductsFromShopify } = await import(
+      "../models/product.server"
+    );
+
+    try {
+      const shopifyProducts = await fetchAllProducts(admin);
+      await syncProductsFromShopify(shopifyProducts, session.shop);
+      const products = await getProducts(session.shop);
+
+      return json({
+        success: true,
+        action: "fetchProducts",
+        products: products,
+      });
+    } catch (error) {
+      console.error("Error fetching products:", error);
+      return json(
+        {
+          success: false,
+          error: error.message,
+        },
+        { status: 500 },
+      );
+    }
+  }
+
   if (actionType === "attachProducts") {
+    const { attachProductsToVideo } = await import("../models/product.server");
     const videoId = formData.get("videoId");
     const productIds = JSON.parse(formData.get("productIds") || "[]");
 
@@ -166,108 +189,87 @@ export const action = async ({ request }) => {
   return json({ success: false });
 };
 
-// Upload Progress Component - NOW WITH AUTO-REVALIDATION
-function UploadProgressCard({ uploadId, fileName, onRemove, onComplete }) {
-  const [progress, setProgress] = useState(0);
+// Single Upload Progress Component
+function UploadProgressCard({ uploads, actualProgress, onComplete }) {
+  const [displayProgress, setDisplayProgress] = useState(0);
   const [status, setStatus] = useState("uploading");
-  const [statusMessage, setStatusMessage] = useState("Uploading to Shopify...");
 
   useEffect(() => {
-    let progressInterval;
+    setDisplayProgress(actualProgress);
 
-    if (status === "uploading") {
-      // Simulate upload progress (0-60%)
-      progressInterval = setInterval(() => {
-        setProgress((prev) => {
-          if (prev >= 60) {
-            clearInterval(progressInterval);
-            setStatus("processing");
-            setStatusMessage("Processing video in Shopify...");
-            return 60;
-          }
-          return prev + 5;
-        });
-      }, 200);
-    } else if (status === "processing") {
-      // Simulate processing (60-90%)
-      progressInterval = setInterval(() => {
-        setProgress((prev) => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            setStatus("finalizing");
-            setStatusMessage("Saving to database...");
-            return 90;
-          }
-          return prev + 2;
-        });
-      }, 300);
-    } else if (status === "finalizing") {
-      // Final stage (90-100%)
-      progressInterval = setInterval(() => {
-        setProgress((prev) => {
-          if (prev >= 100) {
-            clearInterval(progressInterval);
-            setStatus("complete");
-            setStatusMessage("Complete!");
-
-            // Call onComplete to trigger revalidation
-            setTimeout(() => {
-              onComplete(uploadId);
-            }, 1000);
-
-            return 100;
-          }
-          return prev + 5;
-        });
-      }, 200);
+    if (actualProgress >= 100) {
+      setStatus("complete");
+      setTimeout(() => {
+        onComplete();
+      }, 1000);
+    } else if (actualProgress >= 90) {
+      setStatus("finalizing");
+    } else if (actualProgress >= 60) {
+      setStatus("processing");
+    } else {
+      setStatus("uploading");
     }
-
-    return () => {
-      if (progressInterval) clearInterval(progressInterval);
-    };
-  }, [status, uploadId, onComplete]);
+  }, [actualProgress, onComplete]);
 
   if (status === "complete") {
     return null;
   }
 
+  const statusMessages = {
+    uploading: "Uploading to Shopify...",
+    processing: "Processing videos...",
+    finalizing: "Saving to database...",
+    complete: "Complete!",
+  };
+
+  const statusLabels = {
+    uploading: "Uploading videos",
+    processing: "Processing videos",
+    finalizing: "Finalizing",
+  };
+
   return (
-    <Box padding="400" background="bg-surface-secondary" borderRadius="200">
-      <BlockStack gap="200">
+    <Box
+      padding="400"
+      background="bg-surface"
+      borderRadius="300"
+      borderWidth="025"
+      borderColor="border-subdued"
+    >
+      <BlockStack gap="300">
         <InlineStack align="space-between" blockAlign="center">
-          <div style={{ flex: 1 }}>
-            <Text variant="bodyMd" fontWeight="semibold">
-              {status === "uploading" && "⬆️ Uploading Video"}
-              {status === "processing" && "⚙️ Processing Video"}
-              {status === "finalizing" && "✓ Finalizing"}
-            </Text>
-            <Text variant="bodySm" tone="subdued">
-              {fileName.length > 40
-                ? fileName.substring(0, 40) + "..."
-                : fileName}
-            </Text>
-          </div>
-          <div style={{ textAlign: "right", minWidth: "100px" }}>
-            <Text variant="bodySm" fontWeight="medium">
-              {progress}%
-            </Text>
-            <Text variant="bodySm" tone="subdued" as="span">
-              {statusMessage}
+          <InlineStack gap="200" blockAlign="center">
+            <Spinner size="small" />
+            <div>
+              <Text variant="bodyMd" fontWeight="semibold">
+                {statusLabels[status]}
+              </Text>
+              <Text variant="bodySm" tone="subdued">
+                {uploads.length} file
+                {uploads.length > 1 ? "s" : ""} – {statusMessages[status]}
+              </Text>
+            </div>
+          </InlineStack>
+
+          <div style={{ textAlign: "right", minWidth: "60px" }}>
+            <Text variant="bodyLg" fontWeight="bold">
+              {displayProgress}%
             </Text>
           </div>
         </InlineStack>
+
         <ProgressBar
-          progress={progress}
-          size="small"
+          progress={displayProgress}
+          size="medium"
           tone={status === "finalizing" ? "success" : "primary"}
-          animated={true}
+          animated
         />
       </BlockStack>
     </Box>
   );
 }
 
-// Video Card Component with Delete
+// Video Card Component
 function VideoCard({
   video,
   onOpenAddProduct,
@@ -348,9 +350,6 @@ function VideoCard({
             <Text variant="bodyMd" fontWeight="semibold">
               Deleting video...
             </Text>
-            <Text variant="bodySm" tone="subdued">
-              Please wait
-            </Text>
           </BlockStack>
         </div>
       )}
@@ -419,16 +418,8 @@ function VideoCard({
               alignItems: "center",
               justifyContent: "center",
               cursor: "pointer",
-              transition: "background-color 0.2s",
               zIndex: 2,
             }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 1)")
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.backgroundColor =
-                "rgba(255, 255, 255, 0.9)")
-            }
           >
             <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
               <path
@@ -468,7 +459,6 @@ function VideoCard({
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
                           }}
-                          title={attachedProducts[0]?.product?.title}
                         >
                           {attachedProducts[0]?.product?.title || "Untitled"}
                         </span>
@@ -481,11 +471,9 @@ function VideoCard({
                 </InlineStack>
               </div>
             ) : (
-              <>
-                <Text variant="bodySm" as="p" alignment="center">
-                  Attach products to make it shoppable video
-                </Text>
-              </>
+              <Text variant="bodySm" as="p" alignment="center">
+                Attach products to make it shoppable video
+              </Text>
             )}
 
             <Button
@@ -503,12 +491,38 @@ function VideoCard({
   );
 }
 
+// Products Loading State Component
+function ProductsLoadingState() {
+  return (
+    <Box padding="800">
+      <BlockStack gap="400" align="center">
+        <Spinner size="large" />
+        <Text variant="bodyMd" fontWeight="semibold">
+          Loading products...
+        </Text>
+        <Text variant="bodySm" tone="subdued">
+          Syncing with your Shopify store
+        </Text>
+      </BlockStack>
+    </Box>
+  );
+}
+
+// Helper function to check if arrays have same elements (order doesn't matter)
+function arraysHaveSameElements(arr1, arr2) {
+  if (arr1.length !== arr2.length) return false;
+  const sorted1 = [...arr1].sort();
+  const sorted2 = [...arr2].sort();
+  return sorted1.every((val, index) => val === sorted2[index]);
+}
+
 export default function VideoLibrary() {
-  const { videos, products } = useLoaderData();
+  const { videos } = useLoaderData();
   const navigate = useNavigate();
   const productFetcher = useFetcher();
   const revalidator = useRevalidator();
 
+  // State
   const [searchValue, setSearchValue] = useState("");
   const [uploadModalActive, setUploadModalActive] = useState(false);
   const [addProductModalActive, setAddProductModalActive] = useState(false);
@@ -516,43 +530,148 @@ export default function VideoLibrary() {
     useState(false);
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [selectedProducts, setSelectedProducts] = useState([]);
+  const [originalProducts, setOriginalProducts] = useState([]); // Track original state
   const [productSearchValue, setProductSearchValue] = useState("");
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [playingVideo, setPlayingVideo] = useState(null);
+
+  // Pagination
+  const videosPerPage = 4;
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Upload state
+  const [isUploading, setIsUploading] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState([]);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  // Products state
+  const [products, setProducts] = useState([]);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
+  const [productsLoaded, setProductsLoaded] = useState(false);
+
+  // File state
+  const [filePreviews, setFilePreviews] = useState([]);
+  const [fileError, setFileError] = useState("");
+
+  // Toast state
   const [toastActive, setToastActive] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
+  const toastTimerRef = useRef(null);
+
   const videoRefs = useRef({});
 
-  const isSavingProducts = productFetcher.state !== "idle";
+  const isSavingProducts =
+    productFetcher.state !== "idle" &&
+    productFetcher.formData?.get("actionType") === "attachProducts";
+
+  // Check if changes were made - using useMemo for performance
+  const hasChanges = useMemo(() => {
+    return !arraysHaveSameElements(selectedProducts, originalProducts);
+  }, [selectedProducts, originalProducts]);
+
+  // Pagination validation
+  useEffect(() => {
+    const newTotalPages = Math.max(
+      1,
+      Math.ceil((videos?.length || 0) / videosPerPage),
+    );
+    if (currentPage > newTotalPages) {
+      setCurrentPage(newTotalPages);
+    }
+  }, [videos.length, currentPage, videosPerPage]);
 
   useEffect(() => {
-    if (
-      productFetcher.state === "idle" &&
-      productFetcher.data?.success &&
-      productFetcher.data?.action === "attachProducts"
-    ) {
-      setToastMessage("Products updated successfully!");
-      setToastActive(true);
+    return () => {
+      filePreviews.forEach((preview) => {
+        URL.revokeObjectURL(preview.url);
+      });
+    };
+  }, [filePreviews]);
 
-      setAddProductModalActive(false);
-      setModifyProductModalActive(false);
-      setSelectedVideo(null);
-      setSelectedProducts([]);
-      setProductSearchValue("");
-
-      revalidator.revalidate();
+  // Toast auto-dismiss
+  useEffect(() => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
     }
 
-    if (
-      productFetcher.state === "idle" &&
-      productFetcher.data?.success === false
-    ) {
-      setToastMessage("Failed to update products. Please try again.");
-      setToastActive(true);
+    if (toastActive) {
+      toastTimerRef.current = setTimeout(() => {
+        setToastActive(false);
+        setToastMessage("");
+      }, 3000);
     }
-  }, [productFetcher.state, productFetcher.data, revalidator]);
+
+    return () => {
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, [toastActive, toastMessage]);
+
+  const showToast = useCallback((message) => {
+    setToastActive(false);
+    setToastMessage("");
+
+    setTimeout(() => {
+      setToastMessage(message);
+      setToastActive(true);
+    }, 100);
+  }, []);
+
+  // Handle product fetcher response
+  const prevFetcherStateRef = useRef(productFetcher.state);
+
+  useEffect(() => {
+    const prevState = prevFetcherStateRef.current;
+    const currState = productFetcher.state;
+    const data = productFetcher.data;
+
+    const justFinishedRequest = prevState !== "idle" && currState === "idle";
+
+    if (justFinishedRequest && data) {
+      if (data.action === "fetchProducts" && data.success) {
+        setProducts(data.products || []);
+        setIsLoadingProducts(false);
+        setProductsLoaded(true);
+      }
+
+      if (data.action === "attachProducts") {
+        if (data.success) {
+          showToast("Products updated successfully!");
+
+          setAddProductModalActive(false);
+          setModifyProductModalActive(false);
+          setSelectedVideo(null);
+          setSelectedProducts([]);
+          setOriginalProducts([]);
+          setProductSearchValue("");
+
+          revalidator.revalidate();
+        } else {
+          showToast(data.error || "An error occurred");
+        }
+
+        setIsLoadingProducts(false);
+      }
+
+      if (data.success === false && data.action !== "attachProducts") {
+        showToast(data.error || "An error occurred");
+        setIsLoadingProducts(false);
+      }
+    }
+
+    prevFetcherStateRef.current = currState;
+  }, [productFetcher.state, productFetcher.data, revalidator, showToast]);
+
+  const fetchProducts = useCallback(() => {
+    if (productsLoaded) return;
+
+    setIsLoadingProducts(true);
+    const formData = new FormData();
+    formData.append("actionType", "fetchProducts");
+    productFetcher.submit(formData, { method: "post" });
+  }, [productsLoaded, productFetcher]);
 
   const handleSearchChange = useCallback((value) => {
     setSearchValue(value);
@@ -564,7 +683,40 @@ export default function VideoLibrary() {
 
   const handleDropZoneDrop = useCallback(
     (_dropFiles, acceptedFiles, _rejectedFiles) => {
-      setFiles(acceptedFiles);
+      const MAX_SIZE = 5 * 1024 * 1024;
+      const validFiles = [];
+      const newPreviews = [];
+      const oversizedFileNames = [];
+
+      acceptedFiles.forEach((file) => {
+        if (file.size <= MAX_SIZE) {
+          validFiles.push(file);
+          newPreviews.push({
+            name: file.name,
+            size: file.size,
+            url: URL.createObjectURL(file),
+          });
+        } else {
+          oversizedFileNames.push(file.name);
+        }
+      });
+
+      setFilePreviews((prev) => {
+        prev.forEach((p) => URL.revokeObjectURL(p.url));
+        return newPreviews;
+      });
+
+      setFiles(validFiles);
+
+      if (oversizedFileNames.length > 0) {
+        setFileError(
+          `Maximum file size 5MB hai. Ye files bahut badi hain: ${oversizedFileNames.join(
+            ", ",
+          )}`,
+        );
+      } else {
+        setFileError("");
+      }
     },
     [],
   );
@@ -572,66 +724,90 @@ export default function VideoLibrary() {
   const handleUploadSubmit = async () => {
     if (files.length === 0) return;
 
+    const MAX_SIZE = 5 * 1024 * 1024;
+    const tooBig = files.find((file) => file.size > MAX_SIZE);
+    if (tooBig) {
+      showToast(
+        `"${tooBig.name} is larger than 5MB. The maximum allowed size per video is 5MB."`,
+      );
+      return;
+    }
+
     setUploading(true);
+    setIsUploading(true);
+    setUploadProgress(0);
 
-    const newUploads = files.map((file, index) => ({
-      id: `upload-${Date.now()}-${index}`,
+    const fileNames = files.map((file) => ({
       fileName: file.name,
+      size: file.size,
     }));
+    setUploadingFiles(fileNames);
 
-    setUploadingFiles((prev) => [...prev, ...newUploads]);
     setUploadModalActive(false);
-    setFiles([]);
 
     const formData = new FormData();
     files.forEach((file) => {
       formData.append("videos", file);
     });
 
+    setFiles([]);
+
     try {
+      const progressInterval = setInterval(() => {
+        setUploadProgress((prev) => {
+          if (prev >= 40) {
+            clearInterval(progressInterval);
+            return 40;
+          }
+          return prev + 2;
+        });
+      }, 200);
+
       const response = await fetch("/api/upload-video", {
         method: "POST",
         body: formData,
       });
 
-      if (response.ok) {
-        setToastMessage("Videos are being processed...");
-        setToastActive(true);
+      clearInterval(progressInterval);
+
+      setUploadProgress(50);
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        setUploadProgress(70);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        setUploadProgress(90);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        setUploadProgress(100);
+
+        let message =
+          result.message || `${result.videos?.length || 0} video(s) uploaded!`;
+        if (result.failedVideos && result.failedVideos.length > 0) {
+          message += ` (${result.failedVideos.length} failed)`;
+        }
+
+        showToast(message);
       } else {
-        throw new Error("Upload failed");
+        throw new Error(result.error || "Upload failed");
       }
     } catch (error) {
       console.error("Upload failed:", error);
-      setUploadingFiles((prev) =>
-        prev.filter((u) => !newUploads.find((nu) => nu.id === u.id)),
-      );
-      setToastMessage("Upload failed. Please try again.");
-      setToastActive(true);
+      setIsUploading(false);
+      setUploadingFiles([]);
+      setUploadProgress(0);
+      showToast(error.message || "Upload failed. Please try again.");
     } finally {
       setUploading(false);
     }
   };
 
-  const handleUploadComplete = useCallback(
-    (uploadId) => {
-      console.log("Upload complete, revalidating data...");
-
-      // Remove the upload progress card
-      setUploadingFiles((prev) => prev.filter((u) => u.id !== uploadId));
-
-      // Revalidate to fetch new videos from database
-      revalidator.revalidate();
-
-      // Show success message
-      setToastMessage("Video uploaded successfully!");
-      setToastActive(true);
-    },
-    [revalidator],
-  );
-
-  const handleRemoveUpload = useCallback((uploadId) => {
-    setUploadingFiles((prev) => prev.filter((u) => u.id !== uploadId));
-  }, []);
+  const handleUploadComplete = useCallback(() => {
+    setIsUploading(false);
+    setUploadingFiles([]);
+    setUploadProgress(0);
+    revalidator.revalidate();
+  }, [revalidator]);
 
   const handlePlayVideo = useCallback(
     (videoId) => {
@@ -659,31 +835,51 @@ export default function VideoLibrary() {
     [playingVideo],
   );
 
-  const handleOpenAddProductModal = useCallback((video) => {
-    setSelectedVideo(video);
-    setSelectedProducts(video.videoProducts?.map((vp) => vp.productId) || []);
-    setAddProductModalActive(true);
-  }, []);
+  // Open Add Product Modal - Store original products
+  const handleOpenAddProductModal = useCallback(
+    (video) => {
+      const initialProducts =
+        video.videoProducts?.map((vp) => vp.productId) || [];
+      setSelectedVideo(video);
+      setSelectedProducts(initialProducts);
+      setOriginalProducts(initialProducts); // Store original state
+      setAddProductModalActive(true);
+
+      fetchProducts();
+    },
+    [fetchProducts],
+  );
 
   const handleCloseAddProductModal = useCallback(() => {
     if (isSavingProducts) return;
     setAddProductModalActive(false);
     setSelectedVideo(null);
     setSelectedProducts([]);
+    setOriginalProducts([]);
     setProductSearchValue("");
   }, [isSavingProducts]);
 
-  const handleOpenModifyProductModal = useCallback((video) => {
-    setSelectedVideo(video);
-    setSelectedProducts(video.videoProducts?.map((vp) => vp.productId) || []);
-    setModifyProductModalActive(true);
-  }, []);
+  // Open Modify Product Modal - Store original products
+  const handleOpenModifyProductModal = useCallback(
+    (video) => {
+      const initialProducts =
+        video.videoProducts?.map((vp) => vp.productId) || [];
+      setSelectedVideo(video);
+      setSelectedProducts(initialProducts);
+      setOriginalProducts(initialProducts); // Store original state
+      setModifyProductModalActive(true);
+
+      fetchProducts();
+    },
+    [fetchProducts],
+  );
 
   const handleCloseModifyProductModal = useCallback(() => {
     if (isSavingProducts) return;
     setModifyProductModalActive(false);
     setSelectedVideo(null);
     setSelectedProducts([]);
+    setOriginalProducts([]);
     setProductSearchValue("");
   }, [isSavingProducts]);
 
@@ -722,34 +918,68 @@ export default function VideoLibrary() {
     product.title.toLowerCase().includes(productSearchValue.toLowerCase()),
   );
 
+  const totalPages = Math.max(
+    1,
+    Math.ceil((videos?.length || 0) / videosPerPage),
+  );
+  const startIndex = (currentPage - 1) * videosPerPage;
+  const paginatedVideos = videos.slice(startIndex, startIndex + videosPerPage);
+
   const getSelectedProductDetails = useCallback(() => {
     return selectedProducts
       .map((id) => products.find((p) => p.id === id))
       .filter(Boolean);
   }, [selectedProducts, products]);
 
-  const fileUpload = !files.length && (
-    <DropZone.FileUpload actionHint="Accepts .mp4, .mov, .avi" />
+  const fileUpload = !filePreviews.length && (
+    <DropZone.FileUpload actionHint="Accepts .mp4, .mov, .avi (Max 5MB each)" />
   );
 
-  const uploadedFiles = files.length > 0 && (
-    <BlockStack gap="200">
-      {files.map((file, index) => (
-        <InlineStack key={index} align="space-between">
-          <Text as="p">{file.name}</Text>
-          <Text as="p" tone="subdued">
-            {(file.size / 1024 / 1024).toFixed(2)} MB
-          </Text>
-        </InlineStack>
-      ))}
-    </BlockStack>
-  );
+  const uploadedFiles =
+    filePreviews.length > 0 && (
+      <BlockStack gap="200">
+        {filePreviews.map((preview, index) => (
+          <InlineStack key={index} gap="200" blockAlign="center">
+            <div
+              style={{
+                width: "80px",
+                height: "80px",
+                borderRadius: "8px",
+                overflow: "hidden",
+                backgroundColor: "#000",
+                flexShrink: 0,
+              }}
+            >
+              <video
+                src={preview.url}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                }}
+                muted
+              />
+            </div>
+            <BlockStack gap="050">
+              <Text as="p" variant="bodySm">
+                {preview.name}
+              </Text>
+              <Text as="p" variant="bodyXs" tone="subdued">
+                {(preview.size / 1024 / 1024).toFixed(2)} MB
+              </Text>
+            </BlockStack>
+          </InlineStack>
+        ))}
+      </BlockStack>
+    );
 
   const toastMarkup = toastActive ? (
     <Toast
       content={toastMessage}
-      duration={3000}
-      onDismiss={() => setToastActive(false)}
+      onDismiss={() => {
+        setToastActive(false);
+        setToastMessage("");
+      }}
     />
   ) : null;
 
@@ -758,24 +988,20 @@ export default function VideoLibrary() {
       <Page
         title="Video Library"
         primaryAction={{
-          content: "Upload videos",
+          content: isUploading ? "Uploading..." : "Upload videos",
           onAction: () => setUploadModalActive(true),
+          disabled: isUploading,
+          loading: isUploading,
         }}
       >
         <Layout>
-          {uploadingFiles.length > 0 && (
+          {isUploading && uploadingFiles.length > 0 && (
             <Layout.Section>
-              <BlockStack gap="300">
-                {uploadingFiles.map((upload) => (
-                  <UploadProgressCard
-                    key={upload.id}
-                    uploadId={upload.id}
-                    fileName={upload.fileName}
-                    onRemove={handleRemoveUpload}
-                    onComplete={handleUploadComplete}
-                  />
-                ))}
-              </BlockStack>
+              <UploadProgressCard
+                uploads={uploadingFiles}
+                actualProgress={uploadProgress}
+                onComplete={handleUploadComplete}
+              />
             </Layout.Section>
           )}
 
@@ -797,7 +1023,7 @@ export default function VideoLibrary() {
           </Layout.Section>
 
           <Layout.Section>
-            {videos.length === 0 ? (
+            {videos.length === 0 && !isUploading ? (
               <Card>
                 <BlockStack gap="200">
                   <Text as="h2" variant="headingMd">
@@ -809,23 +1035,47 @@ export default function VideoLibrary() {
                 </BlockStack>
               </Card>
             ) : (
-              <Grid>
-                {videos.map((video) => (
-                  <Grid.Cell
-                    key={video.id}
-                    columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}
-                  >
-                    <VideoCard
-                      video={video}
-                      onOpenAddProduct={handleOpenAddProductModal}
-                      onOpenModifyProduct={handleOpenModifyProductModal}
-                      onPlayVideo={handlePlayVideo}
-                      playingVideo={playingVideo}
-                      videoRefs={videoRefs}
-                    />
-                  </Grid.Cell>
-                ))}
-              </Grid>
+              <>
+                <Grid>
+                  {paginatedVideos.map((video) => (
+                    <Grid.Cell
+                      key={video.id}
+                      columnSpan={{ xs: 6, sm: 3, md: 3, lg: 3, xl: 3 }}
+                    >
+                      <VideoCard
+                        video={video}
+                        onOpenAddProduct={handleOpenAddProductModal}
+                        onOpenModifyProduct={handleOpenModifyProductModal}
+                        onPlayVideo={handlePlayVideo}
+                        playingVideo={playingVideo}
+                        videoRefs={videoRefs}
+                      />
+                    </Grid.Cell>
+                  ))}
+                </Grid>
+
+                {videos.length > videosPerPage && (
+                  <Box paddingBlockStart="400">
+                    <InlineStack align="center" blockAlign="center" gap="400">
+                      <Pagination
+                        hasPrevious={currentPage > 1}
+                        onPrevious={() =>
+                          setCurrentPage((prev) => Math.max(1, prev - 1))
+                        }
+                        hasNext={currentPage < totalPages}
+                        onNext={() =>
+                          setCurrentPage((prev) =>
+                            Math.min(totalPages, prev + 1)
+                          )
+                        }
+                      />
+                      <Text tone="subdued" variant="bodySm">
+                        Page {currentPage} of {totalPages}
+                      </Text>
+                    </InlineStack>
+                  </Box>
+                )}
+              </>
             )}
           </Layout.Section>
         </Layout>
@@ -852,8 +1102,8 @@ export default function VideoLibrary() {
             <BlockStack gap="400">
               <Banner>
                 <p>
-                  Upload video files (MP4, MOV, AVI). Maximum file size: 100MB
-                  per video.
+                  Upload video files (MP4, MOV, AVI). Maximum file size: 5MB per
+                  video.
                 </p>
               </Banner>
 
@@ -878,7 +1128,7 @@ export default function VideoLibrary() {
           primaryAction={{
             content: isSavingProducts ? "Saving..." : "Add",
             onAction: handleSaveProducts,
-            disabled: isSavingProducts,
+            disabled: isSavingProducts || isLoadingProducts || !hasChanges, // Disabled when no changes
             loading: isSavingProducts,
           }}
           secondaryActions={[
@@ -900,94 +1150,97 @@ export default function VideoLibrary() {
                         Saving products...
                       </Text>
                     </InlineStack>
-                    <Text variant="bodySm" tone="subdued">
-                      Please wait while we update the product associations
-                    </Text>
                   </BlockStack>
                 </Banner>
               </Box>
             )}
 
-            <BlockStack gap="400">
-              <TextField
-                label=""
-                value={productSearchValue}
-                onChange={setProductSearchValue}
-                placeholder="Search products"
-                autoComplete="off"
-                clearButton
-                onClearButtonClick={() => setProductSearchValue("")}
-                disabled={isSavingProducts}
-              />
+            {isLoadingProducts ? (
+              <ProductsLoadingState />
+            ) : (
+              <BlockStack gap="400">
+                <TextField
+                  label=""
+                  value={productSearchValue}
+                  onChange={setProductSearchValue}
+                  placeholder="Search products"
+                  autoComplete="off"
+                  clearButton
+                  onClearButtonClick={() => setProductSearchValue("")}
+                  disabled={isSavingProducts}
+                />
 
-              <Text as="p" variant="bodySm" tone="subdued">
-                {selectedProducts.length} product
-                {selectedProducts.length !== 1 ? "s" : ""} selected
-              </Text>
+                <Text as="p" variant="bodySm" tone="subdued">
+                  {selectedProducts.length} product
+                  {selectedProducts.length !== 1 ? "s" : ""} selected
+                  {hasChanges && (
+                    <span style={{ color: "#2C6ECB", marginLeft: "8px" }}>
+                      • Changes pending
+                    </span>
+                  )}
+                </Text>
 
-              <div
-                style={{
-                  maxHeight: "400px",
-                  overflowY: "auto",
-                  opacity: isSavingProducts ? 0.5 : 1,
-                  pointerEvents: isSavingProducts ? "none" : "auto",
-                }}
-              >
-                {filteredProducts.length > 0 ? (
-                  <ResourceList
-                    resourceName={{ singular: "product", plural: "products" }}
-                    items={filteredProducts}
-                    renderItem={(product) => {
-                      const { id, title, image } = product;
-                      const media = (
-                        <Thumbnail
-                          source={image || ""}
-                          alt={title}
-                          size="small"
-                        />
-                      );
+                <div
+                  style={{
+                    maxHeight: "400px",
+                    overflowY: "auto",
+                    opacity: isSavingProducts ? 0.5 : 1,
+                    pointerEvents: isSavingProducts ? "none" : "auto",
+                  }}
+                >
+                  {filteredProducts.length > 0 ? (
+                    <ResourceList
+                      resourceName={{ singular: "product", plural: "products" }}
+                      items={filteredProducts}
+                      renderItem={(product) => {
+                        const { id, title, image } = product;
+                        const media = (
+                          <Thumbnail
+                            source={image || ""}
+                            alt={title}
+                            size="small"
+                          />
+                        );
+                        const isSelected = selectedProducts.includes(id);
 
-                      const isSelected = selectedProducts.includes(id);
-
-                      return (
-                        <ResourceItem
-                          id={id}
-                          media={media}
-                          onClick={() =>
-                            !isSavingProducts && handleToggleProduct(id)
-                          }
-                        >
-                          <InlineStack
-                            align="space-between"
-                            blockAlign="center"
+                        return (
+                          <ResourceItem
+                            id={id}
+                            media={media}
+                            onClick={() =>
+                              !isSavingProducts && handleToggleProduct(id)
+                            }
                           >
-                            <InlineStack gap="300" blockAlign="center">
-                              <Checkbox
-                                checked={isSelected}
-                                onChange={() => handleToggleProduct(id)}
-                                disabled={isSavingProducts}
-                              />
-                              <div>
+                            <InlineStack
+                              align="space-between"
+                              blockAlign="center"
+                            >
+                              <InlineStack gap="300" blockAlign="center">
+                                <Checkbox
+                                  checked={isSelected}
+                                  onChange={() => handleToggleProduct(id)}
+                                  disabled={isSavingProducts}
+                                />
                                 <Text variant="bodyMd" fontWeight="medium">
                                   {title}
                                 </Text>
-                              </div>
+                              </InlineStack>
                             </InlineStack>
-                          </InlineStack>
-                        </ResourceItem>
-                      );
-                    }}
-                  />
-                ) : (
-                  <EmptyState
-                    heading="No products found"
-                    image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
-                  >
-                    <p>Try changing the search term</p>
-                  </EmptyState>
-                )}
-              </div>
-            </BlockStack>
+                          </ResourceItem>
+                        );
+                      }}
+                    />
+                  ) : (
+                    <EmptyState
+                      heading="No products found"
+                      image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+                    >
+                      <p>Try changing the search term</p>
+                    </EmptyState>
+                  )}
+                </div>
+              </BlockStack>
+            )}
           </Modal.Section>
         </Modal>
 
@@ -1003,87 +1256,100 @@ export default function VideoLibrary() {
                 <Banner tone="info">
                   <BlockStack gap="200">
                     <InlineStack gap="200" blockAlign="center">
-                      <div style={{ display: "flex", gap: "5px" }}>
-                        <Spinner size="small" />
-                        <Text variant="bodyMd" fontWeight="semibold">
-                          Product Deleting...
-                        </Text>
-                      </div>
+                      <Spinner size="small" />
+                      <Text variant="bodyMd" fontWeight="semibold">
+                        Saving changes...
+                      </Text>
                     </InlineStack>
-                    <Text variant="bodySm" tone="subdued">
-                      Please do not close this window
-                    </Text>
                   </BlockStack>
                 </Banner>
               </Box>
             )}
 
-            <BlockStack gap="400">
-              <Button
-                fullWidth
-                onClick={() => {
-                  setModifyProductModalActive(false);
-                  setAddProductModalActive(true);
-                }}
-                disabled={isSavingProducts}
-                variant="primary"
-              >
-                + Attach products
-              </Button>
-
-              <div
-                style={{
-                  opacity: isSavingProducts ? 0.5 : 1,
-                  pointerEvents: isSavingProducts ? "none" : "auto",
-                }}
-              >
-                {getSelectedProductDetails().length > 0 ? (
-                  <BlockStack gap="200">
-                    {getSelectedProductDetails().map((product) => (
-                      <Card key={product.id}>
-                        <InlineStack align="space-between" blockAlign="center">
-                          <InlineStack gap="300" blockAlign="center">
-                            <Thumbnail
-                              source={product.image || ""}
-                              alt={product.title}
-                              size="small"
-                            />
-                            <Text variant="bodyMd" fontWeight="medium">
-                              {product.title}
-                            </Text>
-                          </InlineStack>
-                          <Button
-                            icon={DeleteIcon}
-                            variant="plain"
-                            tone="critical"
-                            onClick={() => handleRemoveProduct(product.id)}
-                            disabled={isSavingProducts}
-                          />
-                        </InlineStack>
-                      </Card>
-                    ))}
-                  </BlockStack>
-                ) : (
-                  <EmptyState
-                    heading="No products attached"
-                    image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
-                  >
-                    <p>Click "Attach products" to add products to this video</p>
-                  </EmptyState>
-                )}
-              </div>
-
-              <InlineStack align="end">
+            {isLoadingProducts ? (
+              <ProductsLoadingState />
+            ) : (
+              <BlockStack gap="400">
                 <Button
-                  onClick={handleSaveProducts}
-                  loading={isSavingProducts}
+                  fullWidth
+                  onClick={() => {
+                    setModifyProductModalActive(false);
+                    setAddProductModalActive(true);
+                  }}
                   disabled={isSavingProducts}
                   variant="primary"
                 >
-                  {isSavingProducts ? "Saving..." : "Save Changes"}
+                  + Attach products
                 </Button>
-              </InlineStack>
-            </BlockStack>
+
+                {/* Show changes indicator */}
+                {hasChanges && (
+                  <Banner tone="warning">
+                    <Text variant="bodySm">
+                      You have unsaved changes. Click "Save Changes" to apply.
+                    </Text>
+                  </Banner>
+                )}
+
+                <div
+                  style={{
+                    opacity: isSavingProducts ? 0.5 : 1,
+                    pointerEvents: isSavingProducts ? "none" : "auto",
+                  }}
+                >
+                  {getSelectedProductDetails().length > 0 ? (
+                    <BlockStack gap="200">
+                      {getSelectedProductDetails().map((product) => (
+                        <Card key={product.id}>
+                          <InlineStack
+                            align="space-between"
+                            blockAlign="center"
+                          >
+                            <InlineStack gap="300" blockAlign="center">
+                              <Thumbnail
+                                source={product.image || ""}
+                                alt={product.title}
+                                size="small"
+                              />
+                              <Text variant="bodyMd" fontWeight="medium">
+                                {product.title}
+                              </Text>
+                            </InlineStack>
+                            <Button
+                              icon={DeleteIcon}
+                              variant="plain"
+                              tone="critical"
+                              onClick={() => handleRemoveProduct(product.id)}
+                              disabled={isSavingProducts}
+                            />
+                          </InlineStack>
+                        </Card>
+                      ))}
+                    </BlockStack>
+                  ) : (
+                    <EmptyState
+                      heading="No products attached"
+                      image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+                    >
+                      <p>
+                        Click "Attach products" to add products to this video
+                      </p>
+                    </EmptyState>
+                  )}
+                </div>
+
+                <InlineStack align="end">
+                  <Button
+                    onClick={handleSaveProducts}
+                    loading={isSavingProducts}
+                    disabled={isSavingProducts || !hasChanges} // Disabled when no changes
+                    variant="primary"
+                  >
+                    {isSavingProducts ? "Saving..." : "Save Changes"}
+                  </Button>
+                </InlineStack>
+              </BlockStack>
+            )}
           </Modal.Section>
         </Modal>
       </Page>

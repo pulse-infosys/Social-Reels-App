@@ -1,3 +1,21 @@
-name = "reels-scripts"
+# extensions/shoppable-videos/shopify.extension.toml
+
+api_version = "2024-01"
+
+[[extensions]]
+uid = "74af24ad-ce8d-4797-2594-486aec766f170499fadc"
 type = "theme"
-uid = "c352399c-9351-8069-7250-0d8693595ebbdae75d40"
+name = "Reels App Theme"
+handle = "reels-app"
+
+  [[extensions.blocks]]
+  name = "Reels Carousel Widget"
+  type = "reels-carousel"
+  file = "blocks/reels-carousel.liquid"
+  target = "section"
+
+  [[extensions.blocks]]
+  name = "Reels Story Widget"
+  type = "reels-story"
+  file = "blocks/reels-story.liquid"
+  target = "section"
