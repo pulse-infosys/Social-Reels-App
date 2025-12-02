@@ -36,28 +36,35 @@ export async function getVideoPages(shop) {
  * Get a single video page by ID for a shop
  */
 export async function getVideoPageById(id, shop) {
-  return await db.videoPage.findFirst({
+  return db.videoPage.findFirst({
     where: { id, shop },
     include: {
       widgets: {
         include: {
           widgetVideos: {
-            include: {
-              video: {
-                include: {
-                  videoProducts: {
-                    include: {
-                      product: true,
-                    },
-                  },
-                },
-              },
-            },
             orderBy: { position: "asc" },
+            select: {
+              id: true,
+              videoId: true,
+              position: true,
+              visible: true,    // 👈
+            },
           },
         },
       },
     },
+  });
+}
+
+export async function toggleWidgetVideoVisibility(widgetId, videoId, visible) {
+  return db.widgetVideo.update({
+    where: {
+      widgetId_videoId: {
+        widgetId,
+        videoId,
+      },
+    },
+    data: { visible },
   });
 }
 
@@ -92,7 +99,16 @@ export async function createVideoPage({ shop, name, pagePath, pageHandle }) {
  * Create a widget for a video page
  */
 export async function createWidget(pageId, widgetType, videoIds, shop) {
-  // First check if widget already exists
+  // Pehle page fetch karo taaki naam / path mil jaye
+  const page = await db.videoPage.findFirst({
+    where: { id: pageId, shop },
+  });
+
+  if (!page) {
+    throw new Error("Video page not found or access denied");
+  }
+
+  // Check if same widget type already exists on this page
   const existingWidget = await db.widget.findFirst({
     where: {
       pageId,
@@ -101,16 +117,24 @@ export async function createWidget(pageId, widgetType, videoIds, shop) {
   });
 
   if (existingWidget) {
-    throw new Error(`${widgetType} widget already exists for this page`);
-  }
+    // Friendly labels
+    const widgetLabelMap = {
+      carousel: "Carousel",
+      story: "Story",
+      stories: "Story",
+      floating: "Floating",
+    };
 
-  // Verify the page belongs to this shop
-  const page = await db.videoPage.findFirst({
-    where: { id: pageId, shop },
-  });
+    const widgetLabel = widgetLabelMap[widgetType] || widgetType;
 
-  if (!page) {
-    throw new Error("Video page not found or access denied");
+    const pageLabel =
+      page.name ||
+      (page.pagePath === "/" ? "Homepage" : page.pagePath || "this page");
+
+    // Yehi message frontend banner me dikhega
+    throw new Error(
+      `${widgetLabel} widget already exists on ${pageLabel}, You can only have one widget of each type on a page`,
+    );
   }
 
   // Create the widget with videos

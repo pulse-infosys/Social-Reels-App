@@ -34,29 +34,39 @@ export async function syncProductsFromShopify(shopifyProducts, shop) {
         where: {
           shop_shopifyId: {
             shop: shop,
-            shopifyId: product.shopifyId
-          }
+            shopifyId: product.shopifyId,
+          },
         },
         update: {
           title: product.title,
+          handle: product.handle,
           image: product.image,
           price: product.price,
-          updatedAt: new Date()
+          vendor: product.vendor,
+          productType: product.productType,
+          variantId: product.variantId,     
+          productUrl: product.productUrl,   
+          updatedAt: new Date(),
         },
         create: {
           shop: shop,
           shopifyId: product.shopifyId,
           title: product.title,
+          handle: product.handle,
           image: product.image,
-          price: product.price
-        }
+          price: product.price,
+          vendor: product.vendor,
+          productType: product.productType,
+          variantId: product.variantId,     
+          productUrl: product.productUrl,   
+        },
       });
     }
-    
+
     console.log(`Synced ${shopifyProducts.length} products for shop: ${shop}`);
     return { success: true, count: shopifyProducts.length };
   } catch (error) {
-    console.error('Error syncing products:', error);
+    console.error("Error syncing products:", error);
     throw error;
   }
 }

@@ -14,6 +14,9 @@ import {
   EmptyState,
   DataTable,
   Toast,
+  Popover,
+  Text,
+  ChoiceList,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import CreateVideoPageModal from "../components/CreateVideoPageModal";
@@ -51,7 +54,7 @@ export const loader = async ({ request }) => {
 
   const videoPages = await getVideoPages(session.shop);
 
-  console.log('videoPages===',videoPages);
+  console.log("videoPages===", videoPages);
   const videos = await getVideos(session.shop);
 
   const PRODUCTS_QUERY = `
@@ -163,6 +166,60 @@ export default function VideoPages() {
   const [toastActive, setToastActive] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
 
+  const [pageTypeFilter, setPageTypeFilter] = useState(null);
+  const [pageTypePopoverActive, setPageTypePopoverActive] = useState(false);
+
+  const togglePageTypePopover = useCallback(
+    () => setPageTypePopoverActive((prev) => !prev),
+    [],
+  );
+
+  function getPageType(path) {
+    if (!path) return "other";
+    if (path === "/") return "homepage";
+    if (path === "/collections") return "list_collections";
+    if (path.startsWith("/products/")) return "product";
+    if (path.startsWith("/collections/")) return "collection";
+    if (path.startsWith("/pages/")) return "page";
+    if (path.startsWith("/blogs/")) {
+      const parts = path.split("/").filter(Boolean);
+      // /blogs/blog-handle -> blog
+      // /blogs/blog-handle/article-handle -> article
+      return parts.length === 2 ? "blog" : "article";
+    }
+    return "other";
+  }
+
+  function pageTypeLabel(type) {
+    switch (type) {
+      case "product":
+        return "Product";
+      case "collection":
+        return "Collection";
+      case "homepage":
+        return "Homepage";
+      case "list_collections":
+        return "List Collections";
+      case "page":
+        return "Page";
+      case "blog":
+        return "Blog";
+      case "article":
+        return "Article";
+      default:
+        return "Page type";
+    }
+  }
+
+  function getDisplayPath(page) {
+    const path = page.pagePath || "";
+    if (path === "/") return "Homepage";
+
+    const clean = path.replace(/^\//, "");
+
+    return clean.length > 30 ? clean.slice(0, 30) + "..." : clean;
+  }
+
   const isCreating = fetcher.state !== "idle";
 
   /* ---------- Toast handling ---------- */
@@ -182,34 +239,51 @@ export default function VideoPages() {
     [navigate],
   );
 
-  const filteredVideoPages = videoPages.filter(
-    (p) =>
-      !searchValue ||
-      p.name?.toLowerCase().includes(searchValue.toLowerCase()) ||
-      p.pagePath?.toLowerCase().includes(searchValue.toLowerCase()),
-  );
+  const filteredVideoPages = videoPages.filter((p) => {
+    const name = (p.name || "").toLowerCase();
+    const path = (p.pagePath || "").toLowerCase();
 
-  console.log('filteredVideoPages====',filteredVideoPages);
+    const matchesSearch =
+      !searchValue ||
+      name.includes(searchValue.toLowerCase()) ||
+      path.includes(searchValue.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    const type = getPageType(p.pagePath);
+
+    if (!pageTypeFilter || pageTypeFilter === "all") return true;
+
+    return type === pageTypeFilter;
+  });
+
+  console.log("filteredVideoPages====", filteredVideoPages);
 
   const rows = filteredVideoPages.map((page) => {
-    console.log('page===',page);
     const widgetTypes = page.widgets?.map((w) => w.widgetType) || [];
-    // console.log("widgetTypes===", widgetTypes);
 
     return [
       <div
         key={page.id}
         onClick={() => handleRowClick(page.id)}
-        style={{ cursor: "pointer", color: "#008060" }}
+        style={{
+          cursor: "pointer",
+          color: "#008060",
+          maxWidth: "280px",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+        title={page.pagePath === "/" ? "Homepage" : page.pagePath || ""}
       >
-        {page.pagePath}
+        {getDisplayPath(page)}
       </div>,
       <InlineStack gap="200">
         {widgetTypes.includes("floating") && <Badge>Floating</Badge>}
         {widgetTypes.includes("carousel") && <Badge>Carousel</Badge>}
-        {widgetTypes.includes("stories") && <Badge>Stories</Badge>}
-        {widgetTypes.includes("story") && <Badge>Story</Badge>}
-
+        {(widgetTypes.includes("stories") || widgetTypes.includes("story")) && (
+          <Badge>Story</Badge>
+        )}
       </InlineStack>,
       <Badge tone="success">Live</Badge>,
     ];
@@ -242,13 +316,72 @@ export default function VideoPages() {
               <BlockStack gap="0">
                 {/* Search */}
                 <div style={{ padding: "16px 16px 0 16px" }}>
-                  <TextField
-                    label=""
-                    value={searchValue}
-                    onChange={setSearchValue}
-                    placeholder="Search by page name"
-                    autoComplete="off"
-                  />
+                  <InlineStack align="space-between" gap="200">
+                    <div style={{ flex: 1 }}>
+                      <TextField
+                        label=""
+                        value={searchValue}
+                        onChange={setSearchValue}
+                        placeholder="Search by page name or path"
+                        autoComplete="off"
+                      />
+                    </div>
+
+                    {/* Page type filter chip */}
+                    <div>
+                      <Popover
+                        active={pageTypePopoverActive}
+                        activator={
+                          <Button
+                            disclosure
+                            onClick={togglePageTypePopover}
+                            pressed={!!pageTypeFilter}
+                          >
+                            {pageTypeFilter
+                              ? pageTypeLabel(pageTypeFilter)
+                              : "Page type"}
+                          </Button>
+                        }
+                        onClose={togglePageTypePopover}
+                      >
+                        <div
+                          style={{ padding: "10px 14px", minWidth: "200px" }}
+                        >
+                          <ChoiceList
+                            title="Page type"
+                            choices={[
+                              { label: "Product", value: "product" },
+                              { label: "Collection", value: "collection" },
+                              { label: "Homepage", value: "homepage" },
+                              {
+                                label: "List Collections",
+                                value: "list_collections",
+                              },
+                              { label: "Page", value: "page" },
+                              { label: "Blog", value: "blog" },
+                              { label: "Article", value: "article" },
+                            ]}
+                            selected={pageTypeFilter ? [pageTypeFilter] : []}
+                            onChange={(selected) => {
+                              const val = selected[0] || null;
+                              setPageTypeFilter(val);
+                            }}
+                          />
+
+                          <div style={{ marginTop: "8px" }}>
+                            <Button
+                              plain
+                              onClick={() => {
+                                setPageTypeFilter(null);
+                              }}
+                            >
+                              Clear
+                            </Button>
+                          </div>
+                        </div>
+                      </Popover>
+                    </div>
+                  </InlineStack>
                 </div>
 
                 {/* Table or Empty */}

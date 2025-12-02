@@ -1,5 +1,3 @@
-// extensions/shoppable-videos/assets/reels-widget.js
-
 (function () {
   'use strict';
 
@@ -34,15 +32,38 @@
         console.log('[Reels] API response:', json);
 
         if (!json.success || !json.data || !json.data.widgets?.length) {
-          container.innerHTML = ''; 
+          container.innerHTML = '';
           return;
         }
 
-        const widget = json.data.widgets[0]; 
+        const widgets = json.data.widgets;
+        let widget = null;
+
+
+        if (widgetType === 'carousel') {
+          widget = widgets.find(w => w.type === 'carousel');
+        } else if (widgetType === 'story' || widgetType === 'stories') {
+          widget = widgets.find(
+            w => w.type === 'story' || w.type === 'stories'
+          );
+        }
+
+        console.log('[Reels] Picked widget for section:', widget);
+
+        if (!widget) {
+          console.warn(
+            '[Reels] No widget of type',
+            widgetType,
+            'found for this page'
+          );
+          container.innerHTML = '';
+          return;
+        }
+
 
         if (widgetType === 'carousel') {
           renderCarousel(container, widget);
-        } else if (widgetType === 'story' || widgetType === 'stories') {
+        } else {
           renderStories(container, widget);
         }
       } catch (e) {
@@ -59,8 +80,8 @@
 
     const slidesHTML = widget.videos
       .map(
-        (video) => `
-      <div class="sv-carousel-slide">
+        (video, index) => `
+      <div class="sv-carousel-slide" data-index="${index}">
         <div class="sv-carousel-video-wrapper">
           <video 
             src="${video.videoUrl}"
@@ -70,9 +91,7 @@
             playsinline
           ></video>
           <div class="sv-play-overlay">
-            <svg viewBox="0 0 24 24" fill="white" width="36" height="36">
-              <path d="M8 5v14l11-7z" />
-            </svg>
+            
           </div>
         </div>
         <div class="sv-carousel-info">
@@ -81,23 +100,9 @@
             video.products?.length
               ? `
             <div class="sv-carousel-products">
-              ${video.products
-                .slice(0, 2)
-                .map(
-                  (p) => `
-                  <a href="/products/${p.handle}" class="sv-mini-product">
-                    <img src="${p.image || ''}" alt="${p.title || ''}" />
-                  </a>
-                `
-                )
-                .join('')}
-              ${
-                video.products.length > 2
-                  ? `<span class="sv-more-products">+${
-                      video.products.length - 2
-                    }</span>`
-                  : ''
-              }
+              <a href="/products/${video.products[0].handle}" class="sv-mini-product" onclick="event.stopPropagation()">
+                <img src="${video.products[0].image || ''}" alt="${video.products[0].title || ''}" />
+              </a>
             </div>
           `
               : ''
@@ -109,7 +114,7 @@
       .join('');
 
     container.innerHTML = `
-      <div class="sv-carousel-wrapper">
+      <div class="page-width carousel-widget">
         <button class="sv-carousel-nav sv-prev">&lt;</button>
         <div class="sv-carousel-track">
           ${slidesHTML}
@@ -118,10 +123,10 @@
       </div>
     `;
 
-    initCarouselBehaviour(container);
+    initCarouselBehaviour(container, widget);
   }
 
-  function initCarouselBehaviour(container) {
+  function initCarouselBehaviour(container, widget) {
     const track = container.querySelector('.sv-carousel-track');
     const slides = container.querySelectorAll('.sv-carousel-slide');
     const prevBtn = container.querySelector('.sv-prev');
@@ -145,10 +150,8 @@
       if (current > max) current = max;
 
       const slideWidth = slides[0].offsetWidth;
-      const gap = 16;
-      track.style.transform = `translateX(-${
-        current * (slideWidth + gap)
-      }px)`;
+      const gap = 20;
+      track.style.transform = `translateX(-${current * (slideWidth + gap)}px)`;
 
       prevBtn.disabled = current === 0;
       nextBtn.disabled = current >= max;
@@ -170,6 +173,34 @@
       }
     });
 
+    // Hover video play
+    // Videos autoplay + overlay hover behaviour
+    slides.forEach((slide, index) => {
+      const video = slide.querySelector('video');
+      const overlay = slide.querySelector('.sv-play-overlay');
+
+      if (video) {
+        video.play().catch(() => {
+
+        });
+      }
+
+
+      slide.addEventListener('mouseenter', () => {
+        if (overlay) overlay.style.opacity = '0';
+      });
+
+      slide.addEventListener('mouseleave', () => {
+        if (overlay) overlay.style.opacity = '1';
+      });
+
+      slide.addEventListener('click', () => {
+        if (window.ShoppableVideosModal && window.ShoppableVideosModal.open) {
+          window.ShoppableVideosModal.open(widget, index, 'carousel');
+        }
+      });
+    });
+
     window.addEventListener('resize', () => {
       update();
     });
@@ -186,38 +217,46 @@
     const items = widget.videos
       .map(
         (video, i) => `
-      <div class="sv-story-item" data-index="${i}">
-        <div class="sv-story-thumbnail">
-          <img src="${video.thumbnailUrl}" alt="${video.title || ''}" />
-          <div class="sv-story-ring"></div>
+        <div class="sv-story-item" data-index="${i}">
+          <div class="sv-story-thumbnail">
+            <video
+              src="${video.videoUrl}"
+              poster="${video.thumbnailUrl || ''}"
+              muted
+              autoplay
+              loop
+              playsinline
+            ></video>
+          </div>
+          <span class="sv-story-title">${truncate(video.title, 10)}</span>
         </div>
-        <span class="sv-story-title">${truncate(video.title, 10)}</span>
-      </div>
-    `
+      `
       )
       .join('');
 
     container.innerHTML = `
-      <div class="sv-story-wrapper">
+      <div class="page-width story-widget">
         <div class="sv-story-list">
           ${items}
         </div>
       </div>
     `;
 
-    container
-      .querySelectorAll('.sv-story-item')
-      .forEach((el) =>
-        el.addEventListener('click', () => {
-          const index = parseInt(el.dataset.index, 10);
-          openStoryModal(widget, index);
-        })
-      );
-  }
+    const storyVideos = container.querySelectorAll('.sv-story-thumbnail video');
+    storyVideos.forEach((v) => {
+      v.play().catch(() => {
 
-  function openStoryModal(widget, startIndex) {
+      });
+    });
 
-    alert('Story modal ');
+    container.querySelectorAll('.sv-story-item').forEach((el) =>
+      el.addEventListener('click', () => {
+        const index = parseInt(el.getAttribute('data-index'), 10) || 0;
+        if (window.ShoppableVideosModal && window.ShoppableVideosModal.open) {
+          window.ShoppableVideosModal.open(widget, index, 'story');
+        }
+      })
+    );
   }
 
   function truncate(text, len) {

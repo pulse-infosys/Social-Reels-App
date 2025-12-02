@@ -44,6 +44,9 @@ const PRODUCTS_QUERY = `
         node {
           id
           title
+          handle
+          vendor
+          productType
           featuredImage {
             url
             altText
@@ -51,6 +54,7 @@ const PRODUCTS_QUERY = `
           variants(first: 1) {
             edges {
               node {
+                id
                 price
               }
             }
@@ -83,13 +87,23 @@ async function fetchAllProducts(admin) {
     const data = await response.json();
 
     if (data.data && data.data.products) {
-      const products = data.data.products.edges.map((edge) => ({
-        id: edge.node.id.replace("gid://shopify/Product/", ""),
-        shopifyId: edge.node.id.replace("gid://shopify/Product/", ""),
-        title: edge.node.title,
-        image: edge.node.featuredImage?.url || null,
-        price: edge.node.variants.edges[0]?.node.price || "0.00",
-      }));
+      const products = data.data.products.edges.map((edge) => {
+        const node = edge.node;
+        const firstVariant = node.variants.edges[0]?.node;
+
+        return {
+          // 👇 yahi object `syncProductsFromShopify` ko jayega
+          shopifyId: node.id.replace("gid://shopify/Product/", ""),
+          title: node.title,
+          handle: node.handle,
+          image: node.featuredImage?.url || null,
+          price: firstVariant?.price || null,
+          vendor: node.vendor || null,
+          productType: node.productType || null,
+          variantId: firstVariant?.id || null, // full GraphQL gid bhi chalega
+          productUrl: node.handle ? `/products/${node.handle}` : null,
+        };
+      });
 
       allProducts = [...allProducts, ...products];
 

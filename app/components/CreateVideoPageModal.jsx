@@ -14,6 +14,8 @@ import {
   Banner,
   Spinner,
   EmptyState,
+  Pagination,
+  Popover,
 } from "@shopify/polaris";
 
 const WIDGET_TYPES = [
@@ -43,7 +45,7 @@ export default function CreateVideoPageModal({
   shopifyPages = [],
   videos = [],
   onSuccess,
-  actionUrl = "/app/video-pages", // Default action URL
+  actionUrl = "/app/video-pages", 
 }) {
   const navigate = useNavigate();
   const fetcher = useFetcher();
@@ -54,26 +56,44 @@ export default function CreateVideoPageModal({
   const [selectedVideos, setSelectedVideos] = useState([]);
   const [pageSearchValue, setPageSearchValue] = useState("");
   const [videoSearchValue, setVideoSearchValue] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const VIDEOS_PER_PAGE = 4;         
+  const [currentVideoPage, setCurrentVideoPage] = useState(1);
+
+  // Filters
+  const [filterPopoverActive, setFilterPopoverActive] = useState(false);
+  const [filterTagged, setFilterTagged] = useState(false);
+  const [filterUntagged, setFilterUntagged] = useState(false);
+
+  const toggleFilterPopover = useCallback(
+    () => setFilterPopoverActive((prev) => !prev),
+    []
+  );
+
+  useEffect(() => {
+    setCurrentVideoPage(1);
+  }, [videoSearchValue, videos.length, filterTagged, filterUntagged]);
 
   const isCreating = fetcher.state !== "idle";
 
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.success) {
-      // Reset state
+    if (fetcher.state !== "idle" || !fetcher.data) return;
+
+    if (fetcher.data.success) {
+      setErrorMessage("");
+
       setCurrentStep(1);
       setSelectedWidget("");
       setSelectedPage("");
       setSelectedVideos([]);
       setPageSearchValue("");
       setVideoSearchValue("");
-      
-      // Call success callback if provided
-      if (onSuccess) {
-        onSuccess();
-      }
-      
-      // Close modal
+
+      if (onSuccess) onSuccess();
       onClose();
+    } else if (fetcher.data.error) {
+      setErrorMessage(fetcher.data.error);
     }
   }, [fetcher.state, fetcher.data, onSuccess, onClose]);
 
@@ -87,6 +107,7 @@ export default function CreateVideoPageModal({
     setSelectedVideos([]);
     setPageSearchValue("");
     setVideoSearchValue("");
+    setErrorMessage("");
     
     onClose();
   }, [isCreating, onClose]);
@@ -146,10 +167,36 @@ export default function CreateVideoPageModal({
     page.title.toLowerCase().includes(pageSearchValue.toLowerCase())
   );
 
-  const filteredVideos = videos.filter(
-    (video) =>
+  const filteredVideos = videos.filter((video) => {
+    const title = (video.title || "").toLowerCase();
+    const matchesSearch =
       !videoSearchValue ||
-      video.title?.toLowerCase().includes(videoSearchValue.toLowerCase())
+      title.includes(videoSearchValue.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    const hasProducts =
+      Array.isArray(video.videoProducts) &&
+      video.videoProducts.length > 0;
+
+    if (filterTagged && !filterUntagged) {
+      return hasProducts;
+    }
+    if (!filterTagged && filterUntagged) {
+      return !hasProducts;
+    }
+    return true; 
+  });
+
+  const totalVideoPages = Math.max(
+    1,
+    Math.ceil(filteredVideos.length / VIDEOS_PER_PAGE)
+  );
+
+  const startIndex = (currentVideoPage - 1) * VIDEOS_PER_PAGE;
+  const paginatedVideos = filteredVideos.slice(
+    startIndex,
+    startIndex + VIDEOS_PER_PAGE
   );
 
   return (
@@ -161,35 +208,45 @@ export default function CreateVideoPageModal({
       title="Add videos to a new page"
     >
       <Modal.Section>
-        <div
+         <div
           style={{
-            marginBottom: "24px",
-            opacity: isCreating ? 0.5 : 1,
+            marginBottom: "20px",
+            padding: "0 8px",
+            opacity: isCreating ? 0.6 : 1,
             pointerEvents: isCreating ? "none" : "auto",
           }}
         >
+          {/* Top step bar + label */}
+          <InlineStack align="space-between" blockAlign="center">
+            <Text variant="headingSm" as="h3">
+              Add videos to a new page
+            </Text>
+            <Text variant="bodySm" tone="subdued">
+              Step {currentStep} of 2
+            </Text>
+          </InlineStack>
+
           <div
             style={{
+              marginTop: "10px",
               width: "100%",
-              height: "8px",
-              backgroundColor: "#e1e3e5",
-              borderRadius: "4px",
+              height: "4px",
+              backgroundColor: "#e3e5e8",
+              borderRadius: "999px",
               overflow: "hidden",
-              marginBottom: "8px",
             }}
           >
             <div
               style={{
                 width: currentStep === 1 ? "50%" : "100%",
                 height: "100%",
-                backgroundColor: "#000",
+                background:
+                  "linear-gradient(90deg, #000000 0%, #303030 50%, #000000 100%)",
+                borderRadius: "inherit",
                 transition: "width 0.3s ease",
               }}
             />
           </div>
-          <InlineStack align="center">
-            <Text variant="bodyMd">Step {currentStep} of 2</Text>
-          </InlineStack>
         </div>
 
         {isCreating && (
@@ -206,6 +263,18 @@ export default function CreateVideoPageModal({
                   Please wait while we set up your video page
                 </Text>
               </BlockStack>
+            </Banner>
+          </div>
+        )}
+
+        {errorMessage && (
+          <div style={{ marginBottom: "16px" }}>
+            <Banner
+              tone="critical"
+              title="Error"
+              onDismiss={() => setErrorMessage("")}
+            >
+              <p>{errorMessage}</p>
             </Banner>
           </div>
         )}
@@ -229,66 +298,71 @@ export default function CreateVideoPageModal({
                 <div
                   style={{
                     display: "flex",
-                    gap: "16px",
-                    justifyContent: "space-between",
-                    flexWrap: "wrap",
+                    gap: "24px",
+                    justifyContent: "center",  
+                    alignItems: "flex-start",
+                    flexWrap: "nowrap",
+                    width: "100%",
                   }}
                 >
-                  {WIDGET_TYPES.map((widget) => (
-                    <div
-                      key={widget.id}
-                      onClick={() => handleWidgetSelect(widget.id)}
-                      style={{
-                        cursor: "pointer",
-                        border:
-                          selectedWidget === widget.id
-                            ? "3px solid #008060"
-                            : "2px solid #e1e3e5",
-                        borderRadius: "12px",
-                        padding: "16px",
-                        flex: "1",
-                        minWidth: "150px",
-                        maxWidth: "200px",
-                        transition: "all 0.2s ease",
-                        backgroundColor:
-                          selectedWidget === widget.id
-                            ? "#f6f6f7"
-                            : "transparent",
-                      }}
-                    >
-                      <BlockStack gap="300" align="center">
-                        <div
-                          style={{
-                            width: "100px",
-                            height: "150px",
-                            backgroundColor: "#000",
-                            borderRadius: "12px",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            overflow: "hidden",
-                          }}
-                        >
+                  {WIDGET_TYPES.map((widget) => {
+                    const isActive = selectedWidget === widget.id;
+                    return (
+                      <div
+                        key={widget.id}
+                        onClick={() => handleWidgetSelect(widget.id)}
+                        style={{
+                          cursor: "pointer",
+                          width: "300px",                
+                          flex: "0 0 auto",
+                          borderRadius: "16px",
+                          padding: "20px 20px 16px",
+                          backgroundColor: isActive ? "#f3fbf7" : "#fafafa",
+                          border: isActive
+                            ? "2px solid #008060"
+                            : "1px solid #dde0e4",
+                          boxShadow: isActive
+                            ? "0 2px 10px rgba(0, 128, 96, 0.25)"
+                            : "0 1px 3px rgba(0,0,0,0.06)",
+                          transform: isActive ? "translateY(-2px)" : "translateY(0)",
+                          transition: "all 0.18s ease-out",
+                        }}
+                      >
+                        <BlockStack gap="300" align="center">
                           <img
-                            src={widget.image}
-                            alt={widget.name}
-                            style={{
-                              width: "100%",
-                              height: "100%",
-                              objectFit: "cover",
-                            }}
-                          />
-                        </div>
-                        <Text
-                          variant="bodyMd"
-                          fontWeight="semibold"
-                          alignment="center"
-                        >
-                          {widget.name}
-                        </Text>
-                      </BlockStack>
-                    </div>
-                  ))}
+                              src={widget.image}
+                              alt={widget.name}
+                              style={{
+                                maxWidth: "150px",
+                                maxHeight: "100%",
+                                objectFit: "contain", 
+                                display: "block",
+                                margin: "0 auto",
+                              }}
+                            />
+                          <Text
+                            variant="bodyMd"
+                            fontWeight={isActive ? "bold" : "semibold"}
+                            alignment="center"
+                          >
+                            {widget.name}
+                          </Text>
+                          <Text
+                            variant="bodySm"
+                            tone="subdued"
+                            alignment="center"
+                          >
+                            {widget.id === "carousel" &&
+                              "Horizontal video strip for any page"}
+                            {widget.id === "story" &&
+                              "Instagram-style stories at the top"}
+                            {widget.id === "floating" &&
+                              "Floating bubble that follows the shopper"}
+                          </Text>
+                        </BlockStack>
+                      </div>
+                    );
+                  })}
                 </div>
               </BlockStack>
 
@@ -371,6 +445,7 @@ export default function CreateVideoPageModal({
                 <Button
                   onClick={handleNextStep}
                   disabled={!selectedWidget || !selectedPage}
+                  variant="primary"
                 >
                   Next
                 </Button>
@@ -387,10 +462,12 @@ export default function CreateVideoPageModal({
             }}
           >
             <BlockStack gap="400">
+              {/* Top back button */}
               <InlineStack align="start">
-                <Button onClick={handleBackStep}>Back</Button>
+                <Button onClick={handleBackStep} variant="primary">Back</Button>
               </InlineStack>
 
+              {/* Main content */}
               <BlockStack gap="300">
                 <Text variant="headingMd" as="h3">
                   Select Videos
@@ -400,6 +477,7 @@ export default function CreateVideoPageModal({
                   selected store page.
                 </Text>
 
+                {/* Search + Filters row */}
                 <InlineStack align="space-between" gap="200">
                   <div style={{ flex: 1 }}>
                     <TextField
@@ -409,130 +487,239 @@ export default function CreateVideoPageModal({
                       autoComplete="off"
                     />
                   </div>
-                  <Button>Filters</Button>
+
+                  <Popover
+                    active={filterPopoverActive}
+                    activator={
+                      <Button disclosure onClick={toggleFilterPopover}>
+                        Filters
+                      </Button>
+                    }
+                    onClose={toggleFilterPopover}
+                  >
+                    <div style={{ padding: "12px 16px", minWidth: "180px" }}>
+                      <Text variant="bodySm" fontWeight="semibold">
+                        Video Type
+                      </Text>
+                      <BlockStack gap="100" style={{ marginTop: "8px" }}>
+                        <Checkbox
+                          label="Tagged"
+                          checked={filterTagged}
+                          onChange={(value) => setFilterTagged(value)}
+                        />
+                        <Checkbox
+                          label="Un-tagged"
+                          checked={filterUntagged}
+                          onChange={(value) => setFilterUntagged(value)}
+                        />
+                      </BlockStack>
+                    </div>
+                  </Popover>
                 </InlineStack>
 
+                {/* Selected count */}
                 <Text variant="bodySm" tone="subdued">
                   {selectedVideos.length} video
                   {selectedVideos.length !== 1 ? "s" : ""} selected
                 </Text>
 
+                {/* Videos grid – ye wahi design hai jo pehle sahi chal raha tha */}
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns:
-                      "repeat(auto-fill, minmax(180px, 1fr))",
+                    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
                     gap: "16px",
-                    maxHeight: "500px",
+                    maxHeight: "460px",
                     overflowY: "auto",
                     padding: "4px",
                   }}
                 >
-                  {filteredVideos.map((video) => (
-                    <div
-                      key={video.id}
-                      onClick={() => handleVideoToggle(video.id)}
-                      style={{
-                        cursor: "pointer",
-                        border: selectedVideos.includes(video.id)
-                          ? "3px solid #008060"
-                          : "2px solid #e1e3e5",
-                        borderRadius: "12px",
-                        overflow: "hidden",
-                        position: "relative",
-                        transition: "all 0.2s ease",
-                        backgroundColor: selectedVideos.includes(video.id)
-                          ? "#f6f6f7"
-                          : "transparent",
-                      }}
-                    >
+                  {paginatedVideos.map((video) => {
+                    const isSelected = selectedVideos.includes(video.id);
+                    const attached = video.videoProducts || [];
+                    const firstProduct = attached[0]?.product;
+                    const extraCount =
+                      attached.length > 1 ? attached.length - 1 : 0;
+
+                    return (
                       <div
+                        key={video.id}
+                        onClick={() => handleVideoToggle(video.id)}
                         style={{
-                          paddingTop: "150%",
+                          cursor: "pointer",
+                          border: isSelected
+                            ? "2px solid #008060"
+                            : "1px solid #d2d5d8",
+                          borderRadius: "12px",
+                          overflow: "hidden",
                           position: "relative",
-                          backgroundColor: "#000",
+                          transition: "all 0.15s ease",
+                          boxShadow: isSelected
+                            ? "0 0 0 1px #008060, 0 2px 8px rgba(0,0,0,0.08)"
+                            : "0 1px 4px rgba(0,0,0,0.04)",
+                          backgroundColor: "#fff",
                         }}
                       >
-                        <video
-                          src={video.videoUrl}
-                          poster={video.thumbnailUrl}
-                          style={{
-                            position: "absolute",
-                            top: 0,
-                            left: 0,
-                            width: "100%",
-                            height: "100%",
-                            objectFit: "cover",
-                          }}
-                        />
+                        {/* Video preview */}
                         <div
                           style={{
-                            position: "absolute",
-                            top: "8px",
-                            right: "8px",
-                            backgroundColor: "white",
-                            borderRadius: "50%",
-                            padding: "4px",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                            paddingTop: "130%",
+                            position: "relative",
+                            backgroundColor: "#000",
                           }}
                         >
-                          <Checkbox
-                            checked={selectedVideos.includes(video.id)}
-                            onChange={() => handleVideoToggle(video.id)}
+                          <video
+                            src={video.videoUrl}
+                            poster={video.thumbnailUrl}
+                            style={{
+                              position: "absolute",
+                              top: 0,
+                              left: 0,
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                            }}
+                            muted
                           />
+
+                          {/* Checkbox top-right */}
+                          <div
+                            onClick={(e) => {
+                              e.stopPropagation();
+                            }}
+                            style={{
+                              position: "absolute",
+                              top: "8px",
+                              right: "8px",
+                              borderRadius: "999px",
+                              padding: "4px",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <Checkbox
+                              checked={isSelected}
+                              onChange={() => handleVideoToggle(video.id)}
+                            />
+                          </div>
                         </div>
+
+                        {/* Products pills */}
                         <div
                           style={{
-                            position: "absolute",
-                            top: "50%",
-                            left: "50%",
-                            transform: "translate(-50%, -50%)",
-                            width: "40px",
-                            height: "40px",
-                            backgroundColor: "rgba(0,0,0,0.5)",
-                            borderRadius: "50%",
+                            padding: "10px 10px 12px",
+                            minHeight: "64px",
                             display: "flex",
                             alignItems: "center",
-                            justifyContent: "center",
-                            color: "white",
+                            gap: "8px",
+                            flexWrap: "wrap",
                           }}
                         >
-                          ▶
+                          {attached.length === 0 ? (
+                            <Text variant="bodySm" tone="subdued">
+                              No products tagged
+                            </Text>
+                          ) : (
+                            <>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                  padding: "4px 8px",
+                                  borderRadius: "999px",
+                                  backgroundColor: "#f5f5f5",
+                                  border: "1px solid #dddfe2",
+                                  maxWidth: "100%",
+                                }}
+                              >
+                                {firstProduct?.image && (
+                                  <img
+                                    src={firstProduct.image}
+                                    alt={firstProduct.title || ""}
+                                    style={{
+                                      width: "20px",
+                                      height: "20px",
+                                      borderRadius: "4px",
+                                      objectFit: "cover",
+                                      flexShrink: 0,
+                                    }}
+                                  />
+                                )}
+                                <span
+                                  style={{
+                                    fontSize: "12px",
+                                    whiteSpace: "nowrap",
+                                    textOverflow: "ellipsis",
+                                    overflow: "hidden",
+                                    maxWidth: "120px",
+                                  }}
+                                >
+                                  {firstProduct?.title || "Product"}
+                                </span>
+                              </div>
+
+                              {extraCount > 0 && (
+                                <div
+                                  style={{
+                                    padding: "4px 10px",
+                                    borderRadius: "999px",
+                                    border: "1px solid #dddfe2",
+                                    fontSize: "12px",
+                                    backgroundColor: "#fff",
+                                  }}
+                                >
+                                  + {extraCount}
+                                </div>
+                              )}
+                            </>
+                          )}
                         </div>
                       </div>
-                      <div
-                        style={{
-                          padding: "12px",
-                          textAlign: "center",
-                          minHeight: "60px",
-                        }}
-                      >
-                        <Text variant="bodySm" alignment="center">
-                          {video.videoProducts?.length > 0
-                            ? `${video.videoProducts.length} product${video.videoProducts.length !== 1 ? "s" : ""} tagged`
-                            : "Attach products to make it shoppable video"}
-                        </Text>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
+                {/* Pagination */}
+                {filteredVideos.length > VIDEOS_PER_PAGE && (
+                  <InlineStack
+                    align="center"
+                    blockAlign="center"
+                    gap="200"
+                    style={{ marginTop: "16px" }}
+                  >
+                    <Pagination
+                      hasPrevious={currentVideoPage > 1}
+                      onPrevious={() =>
+                        setCurrentVideoPage((prev) => Math.max(1, prev - 1))
+                      }
+                      hasNext={currentVideoPage < totalVideoPages}
+                      onNext={() =>
+                        setCurrentVideoPage((prev) =>
+                          Math.min(totalVideoPages, prev + 1),
+                        )
+                      }
+                    />
+                    <Text tone="subdued" variant="bodySm">
+                      Page {currentVideoPage} of {totalVideoPages}
+                    </Text>
+                  </InlineStack>
+                )}
+
+                {/* Empty state */}
                 {filteredVideos.length === 0 && (
                   <EmptyState
                     heading="No videos found"
                     image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
                   >
                     <p>Upload videos first to add them to your page</p>
-                    <Button onClick={() => navigate("/app")}>
-                      Upload Videos
-                    </Button>
+                    <Button onClick={() => navigate("/app")}>Upload Videos</Button>
                   </EmptyState>
                 )}
               </BlockStack>
 
+              {/* Bottom actions */}
               <InlineStack align="space-between">
                 <Button onClick={handleBackStep}>Back</Button>
                 <Button

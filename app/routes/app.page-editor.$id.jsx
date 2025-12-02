@@ -138,6 +138,27 @@ export const action = async ({ request, params }) => {
     }
   }
 
+  if (actionType === "toggleVideoVisibility") {
+    const { toggleWidgetVideoVisibility } = await import("../models/videoPage.server");
+    const widgetId = formData.get("widgetId");
+    const videoId = formData.get("videoId");
+    const visible = formData.get("visible") === "true";
+
+    try {
+      await toggleWidgetVideoVisibility(widgetId, videoId, visible);
+      return json({
+        success: true,
+        action: "toggleVideoVisibility",
+        widgetId,
+        videoId,
+        visible,
+      });
+    } catch (error) {
+      console.error("Error toggling video visibility:", error);
+      return json({ success: false, error: error.message }, { status: 500 });
+    }
+  }
+
   return json({ success: false });
 };
 
@@ -197,7 +218,11 @@ export default function VideoPageEdit() {
     if (carouselWidget?.widgetVideos) {
       setCarouselVideos(
         carouselWidget.widgetVideos
-          .map((wv) => allVideos.find((v) => v.id === wv.videoId))
+          .map((wv) => {
+            const v = allVideos.find((v) => v.id === wv.videoId);
+            if (!v) return null;
+            return { ...v, visible: wv.visible };
+          })
           .filter(Boolean),
       );
     } else setCarouselVideos([]);
@@ -205,7 +230,11 @@ export default function VideoPageEdit() {
     if (storyWidget?.widgetVideos) {
       setStoryVideos(
         storyWidget.widgetVideos
-          .map((wv) => allVideos.find((v) => v.id === wv.videoId))
+          .map((wv) => {
+            const v = allVideos.find((v) => v.id === wv.videoId);
+            if (!v) return null;
+            return { ...v, visible: wv.visible };
+          })
           .filter(Boolean),
       );
     } else setStoryVideos([]);
@@ -213,7 +242,11 @@ export default function VideoPageEdit() {
     if (floatingWidget?.widgetVideos) {
       setFloatingVideos(
         floatingWidget.widgetVideos
-          .map((wv) => allVideos.find((v) => v.id === wv.videoId))
+          .map((wv) => {
+            const v = allVideos.find((v) => v.id === wv.videoId);
+            if (!v) return null;
+            return { ...v, visible: wv.visible };
+          })
           .filter(Boolean),
       );
     } else setFloatingVideos([]);
@@ -299,6 +332,32 @@ export default function VideoPageEdit() {
     setModalWidgetType(widgetType);
     setCreateWidgetModalOpen(true);
   };
+
+  const handleToggleVideoVisibility = useCallback(
+    (widgetType, widgetId, videoId, currentlyVisible) => {
+      const newVisible = !currentlyVisible;
+
+      const formData = new FormData();
+      formData.append("actionType", "toggleVideoVisibility");
+      formData.append("widgetId", widgetId);
+      formData.append("videoId", videoId);
+      formData.append("visible", String(newVisible));
+      fetcher.submit(formData, { method: "post" });
+
+      // Optimistic local UI update
+      const updateList = (setter) =>
+        setter((prev) =>
+          prev.map((v) =>
+            v.id === videoId ? { ...v, visible: newVisible } : v,
+          ),
+        );
+
+      if (widgetType === "carousel") updateList(setCarouselVideos);
+      else if (widgetType === "story") updateList(setStoryVideos);
+      else if (widgetType === "floating") updateList(setFloatingVideos);
+    },
+    [fetcher],
+  );
 
   const handleToggleWidgetStatus = (widgetId, currentStatus) => {
     const newStatus = currentStatus === "live" ? "draft" : "live";
@@ -514,7 +573,7 @@ export default function VideoPageEdit() {
                                 {...provided.draggableProps}
                                 style={{
                                   ...provided.draggableProps.style,
-                                  opacity: snapshot.isDragging ? 0.8 : 1,
+                                    opacity: snapshot.isDragging ? 0.8 : video.visible === false ? 0.4 : 1,
                                 }}
                               >
                                 <Card>
@@ -541,7 +600,9 @@ export default function VideoPageEdit() {
                                         borderRadius: "8px",
                                         position: "relative",
                                         overflow: "hidden",
+                                         cursor: "pointer",
                                       }}
+                                      onClick={() => setPreviewVideo(video)}
                                     >
                                       <video
                                         src={video.videoUrl}
@@ -616,12 +677,16 @@ export default function VideoPageEdit() {
 
                                     <InlineStack gap="200">
                                       <Button
-                                        icon={
-                                          isPreviewed ? HideIcon : ViewIcon
-                                        }
+                                        icon={video.visible === false ? HideIcon : ViewIcon}
                                         variant="plain"
+                                        tone={video.visible === false ? "subdued" : undefined}
                                         onClick={() =>
-                                          handleTogglePreviewVideo(video)
+                                          handleToggleVideoVisibility(
+                                            widgetType,
+                                            widget.id,
+                                            video.id,
+                                            video.visible !== false,
+                                          )
                                         }
                                       />
                                       <Button

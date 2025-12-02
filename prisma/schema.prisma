@@ -59,6 +59,8 @@ model Product {
   price           String?
   vendor          String?
   productType     String?
+  variantId       String?
+  productUrl      String?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   
@@ -120,6 +122,7 @@ model WidgetVideo {
   videoId   String
   position  Int       @default(0)
   createdAt DateTime  @default(now())
+  visible   Boolean   @default(true)
   
   widget    Widget    @relation(fields: [widgetId], references: [id], onDelete: Cascade)
   video     Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
