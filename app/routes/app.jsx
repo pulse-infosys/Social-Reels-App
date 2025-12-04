@@ -24,6 +24,10 @@ export default function App() {
             Video Library
           </Link>
           <Link to="/app/video-pages">Video Pages</Link>
+          <Link to="/app/template-editor">Customise Style</Link>
+
+          <Link to="/app/billing">Biling</Link>
+
         </NavMenu>
         <Outlet /> 
       </Frame>

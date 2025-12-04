@@ -457,7 +457,7 @@ export default function AddVideosToWidget() {
                   }
                   disabled={isSaving}
                 />
-                <InlineStack gap="200">
+                {/* <InlineStack gap="200">
                   <Button
                     pressed={videoTypeFilter === "all"}
                     onClick={() => setVideoTypeFilter("all")}
@@ -465,7 +465,7 @@ export default function AddVideosToWidget() {
                   >
                     Video Type
                   </Button>
-                </InlineStack>
+                </InlineStack> */}
                 {selectedVideos.length > 0 && (
                   <Text
                     variant="bodySm"

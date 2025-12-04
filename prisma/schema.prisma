@@ -131,3 +131,12 @@ model WidgetVideo {
   @@index([widgetId])
   @@index([videoId])
 }
+
+model ShopPlan {
+  shop               String  @id
+  currentPlan        String  @default("free") 
+  planUpdatedAt      DateTime @default(now())
+  viewsThisPeriod    Int     @default(0)
+  billingPeriodStart DateTime?
+  billingPeriodEnd   DateTime?
+}
